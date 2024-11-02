@@ -60,3 +60,7 @@ Isaac Lab development initiated from the [Orbit](https://isaac-orbit.github.io/)
    doi={10.1109/LRA.2023.3270034}
 }
 ```
+
+## My installation
+Requires `pytorch3d` for hopper geometric pd control on orientation. This was done using installation from source, `pip install git+https://github.com/facebookresearch/pytorch3d.git`. 
+Nominally, the debugger/run tab fails, working on figure out why this is the case. However, things work when run from the console.
