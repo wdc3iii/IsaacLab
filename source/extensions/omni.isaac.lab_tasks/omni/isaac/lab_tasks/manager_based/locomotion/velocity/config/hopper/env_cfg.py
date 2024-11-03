@@ -188,7 +188,7 @@ class HopperFoot(JointAction):
         torques = torch.zeros_like(foot_pos, device=foot_pos.device)
         if torch.any(not_contact):
             torques[not_contact] = self.cfg.spring_stiffness * self.cfg.foot_pos_des - self.cfg.Kp * (
-                        foot_pos[not_contact] - self.cfg.foot_pos_des) - self.cfg.Kd * foot_vel[not_contact]
+                    foot_pos[not_contact] - self.cfg.foot_pos_des) - self.cfg.Kd * foot_vel[not_contact]
         self._asset.set_joint_effort_target(torques, joint_ids=self._joint_ids)
 
 
@@ -326,10 +326,10 @@ class RewardsCfg:
 
     # -- task
     track_lin_vel_xy_exp = RewTerm(
-        func=mdp.track_lin_vel_xy_exp, weight=1.0, params={"command_name": "base_velocity", "std": math.sqrt(0.05)}
+        func=mdp.track_lin_vel_xy_exp, weight=1.0, params={"command_name": "base_velocity", "std": math.sqrt(0.1)}
     )
     track_ang_vel_z_exp = RewTerm(
-        func=mdp.track_ang_vel_z_exp, weight=0.5, params={"command_name": "base_velocity", "std": math.sqrt(0.125)}
+        func=mdp.track_ang_vel_z_exp, weight=0.5, params={"command_name": "base_velocity", "std": math.sqrt(0.25)}
     )
     # -- penalties
     ang_vel_xy_l2 = RewTerm(func=mdp.ang_vel_xy_l2, weight=-0.05)
@@ -342,7 +342,7 @@ class RewardsCfg:
         params={"sensor_cfg": SceneEntityCfg("torso_contact_force", body_names=".*"), "threshold": 0.1},
     )
     # -- optional penalties
-    flat_orientation_l2 = RewTerm(func=mdp.flat_orientation_l2, weight=0.25)
+    flat_orientation_l2 = RewTerm(func=mdp.flat_orientation_l2, weight=0.1)
 
 @configclass
 class TerminationsCfg:
