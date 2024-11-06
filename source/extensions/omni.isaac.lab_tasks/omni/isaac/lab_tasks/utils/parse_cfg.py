@@ -196,3 +196,32 @@ def get_checkpoint_path(
     checkpoint_file = model_checkpoints[-1]
 
     return os.path.join(run_path, checkpoint_file)
+
+
+def parse_controller_cfg(
+    controller_name: str
+):
+    """Parse configuration for an environment and override based on inputs.
+
+    Args:
+        controller_name: The name of the controller.
+
+    Returns:
+        The parsed configuration object.
+
+    Raises:
+        RuntimeError: If the configuration for the task is not a class. We assume users always use a class for the
+            environment configuration.
+    """
+    # load the default configuration
+    if controller_name == "VelocityRHHopper":
+        from omni.isaac.lab.controllers.velocity_raibert_heuristic.hopper import VelocityRHHopperCfg
+        return VelocityRHHopperCfg()
+    elif controller_name == "VelocityRHUnitreeGo2":
+        from omni.isaac.lab.controllers.velocity_raibert_heuristic.unitree_go2 import VelocityRHUnitreeGo2Cfg
+        return VelocityRHUnitreeGo2Cfg()
+    elif controller_name == "VelocityRHUnitreeG1":
+        from omni.isaac.lab.controllers.velocity_raibert_heuristic.unitree_g1 import VelocityRHUnitreeG1Cfg
+        return VelocityRHUnitreeG1Cfg()
+    else:
+        raise RuntimeError(f"Controller: '{controller_name}' is not supported.")

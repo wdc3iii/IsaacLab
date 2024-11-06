@@ -81,8 +81,11 @@ class CommandsCfg:
         heading_command=True,
         heading_control_stiffness=0.5,
         debug_vis=True,
+        # ranges=mdp.UniformVelocityCommandCfg.Ranges(
+        #     lin_vel_x=(-0., 0.), lin_vel_y=(-0., 0.), ang_vel_z=(-0., 0.), heading=(-math.pi, math.pi)
+        # ),
         ranges=mdp.UniformVelocityCommandCfg.Ranges(
-            lin_vel_x=(-0.3, 0.3), lin_vel_y=(-0.3, 0.3), ang_vel_z=(-0.5, 0.5), heading=(-math.pi, math.pi)
+            lin_vel_x=(-0.3, 0.3), lin_vel_y=(-0.3, 0.3), ang_vel_z=(-0.0, 0.0), heading=(-math.pi, math.pi)
         ),
     )
 
@@ -209,7 +212,7 @@ class ActionsCfg:
 
     wheel_eff = HopperGeometricPDCfg(
         asset_name="robot", joint_names=["wheel.*"],
-        Kp=60., Kd=8., Kspindown=0.1,
+        Kp=90., Kd=8., Kspindown=0.1,
         contact_threshold=0.1
     )
     foot_eff = HopperFootCfg(
@@ -279,7 +282,7 @@ class EventCfg:
         func=mdp.reset_root_state_uniform,
         mode="reset",
         params={
-            "pose_range": {"x": (-0.5, 0.5), "y": (-0.5, 0.5), "yaw": (-3.14, 3.14)},
+            "pose_range": {"x": (-0.5, 0.5), "y": (-0.5, 0.5), "yaw": (-0., 0.)}, # (-3.14, 3.14)},
             "velocity_range": {
                 "x": (-0.1, 0.1),
                 "y": (-0.1, 0.1),
