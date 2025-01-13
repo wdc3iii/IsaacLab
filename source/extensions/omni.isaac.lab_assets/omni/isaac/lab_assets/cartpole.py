@@ -39,7 +39,7 @@ CARTPOLE_CFG = ArticulationCfg(
     actuators={
         "cart_actuator": ImplicitActuatorCfg(
             joint_names_expr=["slider_to_cart"],
-            effort_limit=400.0,
+            effort_limit=1.0,
             velocity_limit=100.0,
             stiffness=0.0,
             damping=10.0,

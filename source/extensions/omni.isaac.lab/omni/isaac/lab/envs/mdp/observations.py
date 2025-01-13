@@ -19,7 +19,7 @@ from omni.isaac.lab.assets import Articulation, RigidObject
 from omni.isaac.lab.managers import SceneEntityCfg
 from omni.isaac.lab.managers.manager_base import ManagerTermBase
 from omni.isaac.lab.managers.manager_term_cfg import ObservationTermCfg
-from omni.isaac.lab.sensors import Camera, Imu, RayCaster, RayCasterCamera, TiledCamera
+from omni.isaac.lab.sensors import Camera, Imu, RayCaster, RayCasterCamera, TiledCamera, ContactSensor, FrameTransformer
 
 if TYPE_CHECKING:
     from omni.isaac.lab.envs import ManagerBasedEnv, ManagerBasedRLEnv
@@ -171,6 +171,16 @@ def height_scan(env: ManagerBasedEnv, sensor_cfg: SceneEntityCfg, offset: float 
     sensor: RayCaster = env.scene.sensors[sensor_cfg.name]
     # height scan: height = sensor_height - hit_point_z - offset
     return sensor.data.pos_w[:, 2].unsqueeze(1) - sensor.data.ray_hits_w[..., 2] - offset
+
+
+def contact_force(env: ManagerBasedEnv, sensor_cfg: SceneEntityCfg) -> torch.Tensor:
+    sensor: ContactSensor = env.scene.sensors[sensor_cfg.name]
+    return sensor.data.net_forces_w[:,  sensor_cfg.body_ids]
+
+
+def frame_transform(env: ManagerBasedEnv, sensor_cfg: SceneEntityCfg) -> torch.Tensor:
+    sensor: FrameTransformer = env.scene.sensors[sensor_cfg.name]
+    return sensor.data.target_pos_w
 
 
 def body_incoming_wrench(env: ManagerBasedEnv, asset_cfg: SceneEntityCfg) -> torch.Tensor:

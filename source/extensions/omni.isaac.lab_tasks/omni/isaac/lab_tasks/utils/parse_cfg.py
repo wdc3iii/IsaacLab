@@ -220,8 +220,8 @@ def parse_controller_cfg(
     elif controller_name == "VelocityRHUnitreeGo2":
         from omni.isaac.lab.controllers.velocity_raibert_heuristic.unitree_go2 import VelocityRHUnitreeGo2Cfg
         return VelocityRHUnitreeGo2Cfg()
-    elif controller_name == "VelocityRHUnitreeG1":
-        from omni.isaac.lab.controllers.velocity_raibert_heuristic.unitree_g1 import VelocityRHUnitreeG1Cfg
-        return VelocityRHUnitreeG1Cfg()
+    elif controller_name == "VelocityHLIPUnitreeG1":
+        from omni.isaac.lab.controllers.velocity_raibert_heuristic.unitree_g1 import VelocityHLIPUnitreeG1Cfg
+        return VelocityHLIPUnitreeG1Cfg()
     else:
         raise RuntimeError(f"Controller: '{controller_name}' is not supported.")

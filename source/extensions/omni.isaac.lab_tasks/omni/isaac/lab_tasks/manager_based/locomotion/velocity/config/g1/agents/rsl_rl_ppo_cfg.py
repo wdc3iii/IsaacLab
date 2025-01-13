@@ -50,3 +50,21 @@ class G1FlatPPORunnerCfg(G1RoughPPORunnerCfg):
         self.experiment_name = "g1_flat"
         self.policy.actor_hidden_dims = [256, 128, 128]
         self.policy.critic_hidden_dims = [256, 128, 128]
+
+
+@configclass
+class G1RoughHLIPPPORunnerCfg(G1RoughPPORunnerCfg):
+    def __post_init__(self):
+        super().__post_init__()
+        self.experiment_name = "g1_rough_hlip"
+
+
+@configclass
+class G1FlatHLIPPPORunnerCfg(G1RoughHLIPPPORunnerCfg):
+    def __post_init__(self):
+        super().__post_init__()
+
+        self.max_iterations = 1500
+        self.experiment_name = "g1_flat"
+        self.policy.actor_hidden_dims = [256, 128, 128]
+        self.policy.critic_hidden_dims = [256, 128, 128]

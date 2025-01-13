@@ -91,7 +91,7 @@ def main():
 
     # reset environment
     obs, _ = env.reset()
-    robot_data = {name: torch.zeros(obs[name].shape[0], args_cli.num_steps + 1, obs[name].shape[1]) for name in obs.keys()}
+    robot_data = {name: torch.zeros(args_cli.num_steps + 1, *tuple(obs[name].shape)) for name in obs.keys()}
     save_robot_data(0, obs, robot_data)
     timestep = 0
     env_step = 0
@@ -102,7 +102,9 @@ def main():
         # run everything in inference mode
         with torch.inference_mode():
             # agent stepping
-            actions = controller(obs)
+            # print(env.sim.current_time)
+            actions = controller(env.sim.current_time, obs)
+            # actions = torch.zeros(50, 37, device="cuda:0")
             # env stepping
             obs, _, _, _, _ = env.step(actions)
 
@@ -122,7 +124,7 @@ def main():
 
 def save_robot_data(i, obs, robot_data):
     for name in obs.keys():
-        robot_data[name][:, i, :] = obs[name]
+        robot_data[name][i, ...] = obs[name]
 
 if __name__ == "__main__":
     # run the main function
