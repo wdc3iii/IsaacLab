@@ -4,9 +4,9 @@
 # SPDX-License-Identifier: BSD-3-Clause
 
 from omni.isaac.lab.utils import configclass
+from omni.isaac.lab_tasks.manager_based.locomotion.velocity.velocity_env_cfg import TrackingCommandsCfg, TrackingObservationsCfg
 
-from .rough_env_cfg import UnitreeGo2RoughEnvCfg
-
+from .rough_env_cfg import UnitreeGo2RoughEnvCfg, UnitreeGo2RoughTrackingEnvCfg
 
 @configclass
 class UnitreeGo2FlatEnvCfg(UnitreeGo2RoughEnvCfg):
@@ -15,8 +15,13 @@ class UnitreeGo2FlatEnvCfg(UnitreeGo2RoughEnvCfg):
         super().__post_init__()
 
         # override rewards
+        # self.rewards.flat_orientation_l2.weight = -2.5
+        # self.rewards.feet_air_time.weight = 0.25
+        # self.rewards.base_height_l2.weight = -1.0
         self.rewards.flat_orientation_l2.weight = -2.5
-        self.rewards.feet_air_time.weight = 0.25
+        self.rewards.feet_air_time.weight = 1.0
+        self.rewards.feet_air_time.threshold = 0.3  # default is 0.5
+        self.rewards.base_height_l2.weight = 0.5
 
         # change terrain to flat
         self.scene.terrain.terrain_type = "plane"
@@ -28,7 +33,38 @@ class UnitreeGo2FlatEnvCfg(UnitreeGo2RoughEnvCfg):
         self.curriculum.terrain_levels = None
 
 
+@configclass
+class UnitreeGo2FlatTrackingEnvCfg(UnitreeGo2FlatEnvCfg):
+    commands: TrackingCommandsCfg = TrackingCommandsCfg()
+    observations: TrackingObservationsCfg = TrackingObservationsCfg()
+
+    num_iterations: int = 100
+    iter_duration_s: float = 20
+
+
 class UnitreeGo2FlatEnvCfg_PLAY(UnitreeGo2FlatEnvCfg):
+    def __post_init__(self) -> None:
+        # post init of parent
+        super().__post_init__()
+
+        # Flat Terrain for evaluation
+        self.scene.terrain.terrain_type = "plane"
+        self.scene.terrain.terrain_generator = None
+
+        # make a smaller scene for play
+        self.scene.num_envs = 50
+        self.scene.env_spacing = 2.5
+        # disable randomization for play
+        self.observations.policy.enable_corruption = False
+        # remove random pushing event
+        self.events.base_external_force_torque = None
+        self.events.push_robot = None
+
+        # no terrain curriculum
+        self.curriculum.terrain_levels = None
+
+
+class UnitreeGo2FlatTrackingEnvCfg_RECORD(UnitreeGo2FlatTrackingEnvCfg):
     def __post_init__(self) -> None:
         # post init of parent
         super().__post_init__()

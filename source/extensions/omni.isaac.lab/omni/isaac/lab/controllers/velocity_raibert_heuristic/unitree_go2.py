@@ -149,14 +149,7 @@ class VelocityRHUnitreeGo2:
             )).T[:, None, :] + self.cfg.foot_offsets[None, stance_inds]
 
         # Compute desired swing foot position
-        p_mid_stance = torch.where(
-            torch.abs(self.yaw_rate_des)[:, None] >= 1e-3,
-            1 / self.yaw_rate_des[:, None] * torch.vstack((
-                self.v_des[:, 0] * torch.sin(self.yaw_rate_des * t_next_mid) + self.v_des[:, 1] * (torch.cos(self.yaw_rate_des * t_next_mid) - 1),
-                -self.v_des[:, 0] * (torch.cos(self.yaw_rate_des * t_next_mid) - 1) + self.v_des[:, 1] * torch.sin(self.yaw_rate_des * t_next_mid)
-            )).T,
-            t_next_mid * self.v_des
-        )  # Compute CoM position at next mid-stance, relative to current position.
+        p_mid_stance = self._integrate_v_des(t_next_mid)  # Compute CoM position at next mid-stance, relative to current position.
         p_swing_impact_nom = p_mid_stance[:, None, :] + self.cfg.foot_offsets[None, swing_inds]  # Offset to feet under hips
         p_swing_impact = p_swing_impact_nom + self.cfg.K_raibert * (v[:, :2] - self.v_des)[:, None, :]  # modify via Raibert Heuristic
         p_swing_takeoff_rel = p[:, :2, None] - self.p_swing_takeoff_prev
@@ -164,11 +157,13 @@ class VelocityRHUnitreeGo2:
             torch.cos(yaw[:, None]) * p_swing_takeoff_rel[:, :, 0] + torch.sin(yaw[:, None]) * p_swing_takeoff_rel[:, :, 1],
             -torch.sin(yaw[:, None]) * p_swing_takeoff_rel[:, :, 0] + torch.cos(yaw[:, None]) * p_swing_takeoff_rel[:, :, 1]
         ))                                                             # Compute swing foot takeoff position in current body frame
-        p_swing_des = self._compute_swing_traj(t_phase, p_swing_takeoff, p_swing_impact)  # Compute desired foot position along spline trajectory
+        p_swing_des, dp_swing_des = self._compute_swing_traj(t_phase, p_swing_takeoff, p_swing_impact)  # Compute desired foot position along spline trajectory
 
         # Now implement controller. Decide pos/vel setpoints, feedforward torques.
 
-        return
+        q_d, dq_d, t_ff = self._compute_actions_IK(p, p_swing_des, dp_swing_des)
+
+        return q_d, dq_d, t_ff
 
     @staticmethod
     def _quat2yaw(q: torch.Tensor) -> torch.Tensor:
@@ -183,10 +178,43 @@ class VelocityRHUnitreeGo2:
         dp = p_next - p_prev
         x = p_prev[:, :, 0] + (self.cfg.lat_coeffs[0] * t_square + self.cfg.lat_coeffs[1] * t_square * t) * dp[:, :, 0]  # x (one spline)
         y = p_prev[:, :, 1] + (self.cfg.lat_coeffs[0] * t_square + self.cfg.lat_coeffs[1] * t_square * t) * dp[:, :, 1]  # y (one spline)
+
+        dx = (2 * self.cfg.lat_coeffs[0] * t + 3 * self.cfg.lat_coeffs[1] * t_square) * dp[:, :, 0]  # x (one spline)
+        dy = (2 * self.cfg.lat_coeffs[0] * t + 3 * self.cfg.lat_coeffs[1] * t_square) * dp[:, :, 1]  # x (one spline)
         if t < self.cfg.swing_apex_proportion:
-            return torch.dstack((x, y, torch.ones_like(x) * (self.cfg.up_coeffs[0] * t_square + self.cfg.up_coeffs[1] * t_square * t)))
+            return (
+                torch.dstack((x, y, torch.ones_like(x) * (self.cfg.up_coeffs[0] * t_square + self.cfg.up_coeffs[1] * t_square * t))),
+                torch.dstack((dx, dy, torch.ones_like(x) * (2 * self.cfg.up_coeffs[0] * t + 3 * self.cfg.up_coeffs[1] * t_square)))
+            )
+
         else:
             # predict where p, v are at next contact
             t_r = 1 - t
             t_r_sq = torch.square(t_r)
-            return torch.dstack((x, y, torch.ones_like(self.cfg.down_coeffs[0] * t_r_sq + self.cfg.down_coeffs[1] * t_r_sq * t_r)))
+            return (
+                torch.dstack((x, y, torch.ones_like(self.cfg.down_coeffs[0] * t_r_sq + self.cfg.down_coeffs[1] * t_r_sq * t_r))),
+                torch.dstack((dx, dy, 2 * torch.ones_like(self.cfg.down_coeffs[0] * t_r + self.cfg.down_coeffs[1] * t_r_sq)))
+            )
+
+    def _integrate_v_des(self, dt):
+        return torch.where(
+            torch.abs(self.yaw_rate_des)[:, None] >= 1e-3,
+            1 / self.yaw_rate_des[:, None] * torch.vstack((
+                self.v_des[:, 0] * torch.sin(self.yaw_rate_des * dt) + self.v_des[:, 1] * (torch.cos(self.yaw_rate_des * dt) - 1),
+                -self.v_des[:, 0] * (torch.cos(self.yaw_rate_des * dt) - 1) + self.v_des[:, 1] * torch.sin(self.yaw_rate_des * dt)
+            )).T,
+            dt * self.v_des
+        )  # Compute CoM position at next mid-stance, relative to current position.
+
+
+    def _compute_actions_IK(self, p, p_sw_d, dp_sw_d):
+        # Project body forward one dt
+        p_next = self._integrate_v_des(self.cfg.proj_dt)
+
+        # Solve IK to place limbs
+
+        # Compute joint velocities
+
+        # Compute GC torques
+
+        return q, dq, tau

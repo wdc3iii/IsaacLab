@@ -5,7 +5,8 @@
 
 from omni.isaac.lab.utils import configclass
 
-from omni.isaac.lab_tasks.manager_based.locomotion.velocity.velocity_env_cfg import LocomotionVelocityRoughEnvCfg
+from omni.isaac.lab_tasks.manager_based.locomotion.velocity.velocity_env_cfg import LocomotionVelocityRoughEnvCfg, TrackingCommandsCfg, TrackingObservationsCfg
+from omni.isaac.lab.terrains.config.rough import EASY_ROUGH_TERRAINS_CFG
 
 ##
 # Pre-defined configs
@@ -61,7 +62,110 @@ class UnitreeGo2RoughEnvCfg(LocomotionVelocityRoughEnvCfg):
 
 
 @configclass
+class UnitreeGo2RoughBlindEnvCfg(UnitreeGo2RoughEnvCfg):
+    def __post_init__(self):
+        # post init of parent
+        super().__post_init__()
+
+        # change terrain to flat
+        self.scene.terrain.terrain_generator = EASY_ROUGH_TERRAINS_CFG
+        # no height scan
+        self.scene.height_scanner = None
+        self.observations.policy.height_scan = None
+
+
+@configclass
+class UnitreeGo2RoughTrackingEnvCfg(UnitreeGo2RoughEnvCfg):
+    commands: TrackingCommandsCfg = TrackingCommandsCfg()
+    observations: TrackingObservationsCfg = TrackingObservationsCfg()
+
+    num_iterations: int = 100
+    iter_duration_s: float = 20
+
+
+@configclass
+class UnitreeGo2RoughBlindTrackingEnvCfg(UnitreeGo2RoughBlindEnvCfg):
+    commands: TrackingCommandsCfg = TrackingCommandsCfg()
+    observations: TrackingObservationsCfg = TrackingObservationsCfg()
+
+    num_iterations: int = 100
+    iter_duration_s: float = 20
+
+
+@configclass
 class UnitreeGo2RoughEnvCfg_PLAY(UnitreeGo2RoughEnvCfg):
+    def __post_init__(self):
+        # post init of parent
+        super().__post_init__()
+
+        # make a smaller scene for play
+        self.scene.num_envs = 50
+        self.scene.env_spacing = 2.5
+        # spawn the robot randomly in the grid (instead of their terrain levels)
+        self.scene.terrain.max_init_terrain_level = None
+        # reduce the number of terrains to save memory
+        if self.scene.terrain.terrain_generator is not None:
+            self.scene.terrain.terrain_generator.num_rows = 5
+            self.scene.terrain.terrain_generator.num_cols = 5
+            self.scene.terrain.terrain_generator.curriculum = False
+
+        # disable randomization for play
+        self.observations.policy.enable_corruption = False
+        # remove random pushing event
+        self.events.base_external_force_torque = None
+        self.events.push_robot = None
+
+
+@configclass
+class UnitreeGo2RoughBlindEnvCfg_PLAY(UnitreeGo2RoughBlindEnvCfg):
+    def __post_init__(self):
+        # post init of parent
+        super().__post_init__()
+
+        # make a smaller scene for play
+        self.scene.num_envs = 50
+        self.scene.env_spacing = 2.5
+        # spawn the robot randomly in the grid (instead of their terrain levels)
+        self.scene.terrain.max_init_terrain_level = None
+        # reduce the number of terrains to save memory
+        if self.scene.terrain.terrain_generator is not None:
+            self.scene.terrain.terrain_generator.num_rows = 5
+            self.scene.terrain.terrain_generator.num_cols = 5
+            self.scene.terrain.terrain_generator.curriculum = False
+
+        # disable randomization for play
+        self.observations.policy.enable_corruption = False
+        # remove random pushing event
+        self.events.base_external_force_torque = None
+        self.events.push_robot = None
+
+
+@configclass
+class UnitreeGo2RoughTrackingEnvCfg_RECORD(UnitreeGo2RoughTrackingEnvCfg):
+    def __post_init__(self):
+        # post init of parent
+        super().__post_init__()
+
+        # make a smaller scene for play
+        self.scene.num_envs = 50
+        self.scene.env_spacing = 2.5
+        # spawn the robot randomly in the grid (instead of their terrain levels)
+        self.scene.terrain.max_init_terrain_level = None
+        # reduce the number of terrains to save memory
+        if self.scene.terrain.terrain_generator is not None:
+            self.scene.terrain.terrain_generator.num_rows = 5
+            self.scene.terrain.terrain_generator.num_cols = 5
+            self.scene.terrain.terrain_generator.curriculum = False
+
+        # disable randomization for play
+        self.observations.policy.enable_corruption = False
+        # remove random pushing event
+        self.events.base_external_force_torque = None
+        self.events.push_robot = None
+
+
+@configclass
+class UnitreeGo2RoughBlindTrackingEnvCfg_Record(UnitreeGo2RoughBlindTrackingEnvCfg):
     def __post_init__(self):
         # post init of parent
         super().__post_init__()
