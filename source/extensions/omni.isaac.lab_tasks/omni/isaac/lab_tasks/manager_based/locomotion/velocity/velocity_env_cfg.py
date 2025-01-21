@@ -245,11 +245,12 @@ class EventCfg:
         func=mdp.randomize_rigid_body_material,
         mode="startup",
         params={
-            "asset_cfg": SceneEntityCfg("robot", body_names=".*"),
+            "asset_cfg": SceneEntityCfg("robot", body_names=".*foot"),
             "static_friction_range": (0.2, 0.8),
             "dynamic_friction_range": (0.15, 0.6),
             "restitution_range": (0.0, 0.0),
             "num_buckets": 64,
+            "make_consistent": True
         },
     )
 
