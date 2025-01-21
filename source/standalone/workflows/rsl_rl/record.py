@@ -126,47 +126,47 @@ def main():
     date_str, time_str = datetime.now().strftime("%Y-%m-%d"), datetime.now().strftime('%H-%M-%S')
     output_path = os.path.join("outputs", "planner_tracker", date_str, time_str)
     os.makedirs(output_path, exist_ok=True)
-    for i in range(env_cfg.num_iterations):
-        # reset environment
-        with torch.inference_mode():
-            env.reset()
-        obs, info = env.get_observations()
-        timestep = 0
 
+    for i in range(env_cfg.num_iterations):
         # data structures to save data
         N = int(env_cfg.iter_duration_s / env.unwrapped.step_dt)
-        done_t = torch.zeros((N - 1, obs.shape[0]), dtype=torch.bool, device=env.device)
-        obs_t = torch.zeros((N, *obs.shape), device=env.device)
+        done_t = torch.zeros((N - 1, env.unwrapped.num_envs), dtype=torch.bool, device=env.device)
+        obs_t = torch.zeros((N, *env.unwrapped.observation_space['policy'].shape), device=env.device)
         action_t = torch.zeros((N - 1, *env.unwrapped.action_space.shape))
-        z = torch.zeros((N - 1, obs.shape[0], 3), device=env.device)
-        v = torch.zeros((N - 1, obs.shape[0], 3), device=env.device)
-        p_x = torch.zeros((N - 1, obs.shape[0], 3), device=env.device)
-        h = torch.zeros((N -1, obs.shape[0]), device=env.device)
-        obs_t[0] = obs
+        z = torch.zeros((N - 1, env.unwrapped.num_envs, 3), device=env.device)
+        v = torch.zeros((N - 1, env.unwrapped.num_envs, 3), device=env.device)
+        p_x = torch.zeros((N - 1, env.unwrapped.num_envs, 3), device=env.device)
+        h = torch.zeros((N -1, env.unwrapped.num_envs), device=env.device)
 
-        # simulate environment
-        while simulation_app.is_running() and timestep < N - 1:
-            # run everything in inference mode
-            with torch.inference_mode():
+        # run everything in inference mode
+        with torch.inference_mode():
+            # reset environment
+            env.reset()
+            obs, info = env.get_observations()
+            timestep = 0
+            obs_t[0] = obs
+
+            # simulate environment
+            while simulation_app.is_running() and timestep < N - 1:
                 # agent stepping
                 actions = policy(obs)
                 # env stepping
                 obs, rew, dones, info = env.step(actions)
 
-            obs_t[timestep + 1] = obs.detach().clone()
-            action_t[timestep] = actions.detach().clone()
-            z[timestep] = env.unwrapped.command_manager._terms['base_velocity'].trajectory[:, 0].detach().clone()
-            v[timestep] = env.unwrapped.command_manager._terms['base_velocity'].v_trajectory[:, 0].detach().clone()
-            p_x[timestep, :, :2] = info['observations']['tracking'][:, :2].detach().clone()
-            h[timestep] = info['observations']['tracking'][:, 2].detach().clone()
-            p_x[timestep, :, 2] = quat2yaw(info['observations']['tracking'][:, 3:]).detach().clone()
-            done_t[timestep] = dones.detach().clone()
+                obs_t[timestep + 1] = obs.detach().clone()
+                action_t[timestep] = actions.detach().clone()
+                z[timestep] = env.unwrapped.command_manager._terms['base_velocity'].trajectory[:, 0].detach().clone()
+                v[timestep] = env.unwrapped.command_manager._terms['base_velocity'].v_trajectory[:, 0].detach().clone()
+                p_x[timestep, :, :2] = info['observations']['tracking'][:, :2].detach().clone()
+                h[timestep] = info['observations']['tracking'][:, 2].detach().clone()
+                p_x[timestep, :, 2] = quat2yaw(info['observations']['tracking'][:, 3:]).detach().clone()
+                done_t[timestep] = dones.detach().clone()
 
-            timestep += 1
-            if args_cli.video:
-                # Exit the play loop after recording one video
-                if timestep == args_cli.video_length:
-                    break
+                timestep += 1
+                if args_cli.video:
+                    # Exit the play loop after recording one video
+                    if timestep == args_cli.video_length:
+                        break
 
         fn_pickle = os.path.join(output_path, f"data_{i}.pickle")
         fn_mat = os.path.join(output_path, f"data_{i}.mat")
@@ -181,6 +181,11 @@ def main():
         )
 
         rbt_ind = 5
+        plt.figure()
+        plt.plot(h[:, rbt_ind].cpu().numpy())
+        plt.ylabel('Height')
+        plt.show()
+
         fig, ax = plt.subplots(1, 2)
         z_plt = z[:, rbt_ind, :].cpu().numpy()
         px_plt = p_x[:, rbt_ind, :].cpu().numpy()
@@ -195,13 +200,7 @@ def main():
         ax[1].plot((yaw_err + torch.pi) % (2 * torch.pi) - torch.pi)
         ax[1].legend(['e_x', 'e_y', 'e_heading'])
         plt.show()
-
-        plt.figure()
-        plt.plot(h[:, rbt_ind].cpu().numpy())
-        plt.ylabel('Height')
-        plt.show()
         plt.close('all')
-
 
     # close the simulator
     print(f"Data saved in: {output_path}")

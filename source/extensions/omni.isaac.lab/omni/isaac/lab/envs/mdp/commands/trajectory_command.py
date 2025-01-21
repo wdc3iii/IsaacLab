@@ -155,15 +155,20 @@ class TrajectoryCommand(CommandTerm):
         # resolve the environment IDs
         if env_ids is None:
             env_ids = slice(None)
+
         # set the command counter to zero
         self.command_counter[env_ids] = 0
         # resample the command
         self.trajectory[env_ids, :, :] = torch.zeros((len(env_ids), self.cfg.N + 1, 3),
                                                      device=self.device)
         self.v_trajectory[env_ids, :, :] = torch.zeros((len(env_ids), self.cfg.N, 3), device=self.device)
-        # TODO: add rng to initial condition
+
         self.trajectory[env_ids, -1, :2] = self.robot.data.root_pos_w[env_ids, :2].detach().clone() - self.env_origins[env_ids, :2]
         self.trajectory[env_ids, -1, 2] = self._quat2yaw(self.robot.data.root_quat_w[env_ids].detach().clone())
+        # Add randomization to IC
+        self.trajectory[env_ids, -1, :2] += self.rnd_vec((len(env_ids), 2), -self.cfg.init_pos_rnd, self.cfg.init_pos_rnd)
+        self.trajectory[env_ids, -1, 2] += self.rnd_vec((len(env_ids),), -self.cfg.init_heading_rnd, self.cfg.init_heading_rnd)
+
         self.k[env_ids] = -self.cfg.N
         self.t[env_ids] = self.k[env_ids] * self.cfg.dt * self.cfg.rel_dt
         self.last_step_t[env_ids] = 0
@@ -274,7 +279,7 @@ class TrajectoryCommand(CommandTerm):
             weight_mask = idx[:, :, None].repeat((1, 1, self.weights.shape[-1]))
             self.weights[weight_mask] = self.rnd_vec(torch.sum(idx) * self.weights.shape[-1])
             self.weights[idx, :] /= torch.linalg.norm(self.weights[idx, :], dim=-1, keepdim=True)
-            # TODO: alter weight distribution
+            # TODO: alter weight distribution?
             self.t_rem_weights[idx] = self.rnd_vec(torch.sum(idx), self.cfg.t_min, self.cfg.t_max)
 
     def _const_input(self):
@@ -318,7 +323,6 @@ class TrajectoryCommand(CommandTerm):
         velocity from heading direction if the heading_command flag is set.
         """
         # Enforce standing (i.e., zero velocity command) for standing envs
-        # TODO: check if conversion is needed
         standing_env_ids = self.is_standing_env.nonzero(as_tuple=False).flatten()
         self.vel_command_b[standing_env_ids, :] = 0.0
 
@@ -348,13 +352,17 @@ class TrajectoryCommand(CommandTerm):
             torch.cos(robot_yaw) * pos_err[:, 0] + torch.sin(robot_yaw) * pos_err[:, 1],
             -torch.sin(robot_yaw) * pos_err[:, 0] + torch.cos(robot_yaw) * pos_err[:, 1]
         ]).T
+        # Put feedforward velocity into local frame
+        v_ff = torch.vstack([
+            torch.cos(heading_err) * self.v_trajectory[:, 0, 0] + torch.sin(heading_err) * self.v_trajectory[:, 0, 1],
+            -torch.sin(heading_err) * self.v_trajectory[:, 0, 0] + torch.cos(heading_err) * self.v_trajectory[:, 0, 1],
+            self.v_trajectory[:, 0, 2]
+        ]).T
         self.vel_command_b = torch.clamp(
-            self.v_trajectory[:, 0] - self.K * torch.hstack((pos_err, heading_err[:, None])),
+            v_ff - self.K * torch.hstack((pos_err, heading_err[:, None])),
             self.fb_v_min,
             self.fb_v_max
         )
-        # self.vel_command_b[:, 0] = 0.5
-        # self.vel_command_b[:, 1:] = 0.
 
     def _step_rom_idx(self, idx):
         # Get input to apply for trajectory
@@ -364,8 +372,8 @@ class TrajectoryCommand(CommandTerm):
 
         # Update trajectory
         z = self.trajectory[idx, -1, :]
-        s_theta = torch.sin(z[idx, 2])
-        c_theta = torch.cos(z[idx, 2])
+        s_theta = torch.sin(z[:, 2])
+        c_theta = torch.cos(z[:, 2])
         z_next = z + (self.cfg.dt * self.cfg.rel_dt) * torch.vstack([
             c_theta * v[idx, 0] - s_theta * v[idx, 1],
             s_theta * v[idx, 0] + c_theta * v[idx, 1],

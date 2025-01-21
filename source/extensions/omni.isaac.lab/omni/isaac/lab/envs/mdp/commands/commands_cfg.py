@@ -141,6 +141,10 @@ class TrajectoryCommandCfg(CommandTermCfg):
     rng_mag_std = 0.25
     """Likelihood/scale of adding random noise to the inputs of the trajectory"""
 
+    init_pos_rnd: float = 0.5
+    init_heading_rnd: float = 3.14
+    """Random noise added to initial condition (for exploration)"""
+
     @configclass
     class Ranges:
         """Uniform distribution ranges for the velocity commands."""
