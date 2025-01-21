@@ -141,6 +141,7 @@ def main():
         z = torch.zeros((N - 1, obs.shape[0], 3), device=env.device)
         v = torch.zeros((N - 1, obs.shape[0], 3), device=env.device)
         p_x = torch.zeros((N - 1, obs.shape[0], 3), device=env.device)
+        h = torch.zeros((N -1, obs.shape[0]), device=env.device)
         obs_t[0] = obs
 
         # simulate environment
@@ -157,6 +158,7 @@ def main():
             z[timestep] = env.unwrapped.command_manager._terms['base_velocity'].trajectory[:, 0].detach().clone()
             v[timestep] = env.unwrapped.command_manager._terms['base_velocity'].v_trajectory[:, 0].detach().clone()
             p_x[timestep, :, :2] = info['observations']['tracking'][:, :2].detach().clone()
+            h[timestep] = info['observations']['tracking'][:, 2].detach().clone()
             p_x[timestep, :, 2] = quat2yaw(info['observations']['tracking'][:, 3:]).detach().clone()
             done_t[timestep] = dones.detach().clone()
 
@@ -193,7 +195,13 @@ def main():
         ax[1].plot((yaw_err + torch.pi) % (2 * torch.pi) - torch.pi)
         ax[1].legend(['e_x', 'e_y', 'e_heading'])
         plt.show()
+
+        plt.figure()
+        plt.plot(h[:, rbt_ind].cpu().numpy())
+        plt.ylabel('Height')
+        plt.show()
         plt.close('all')
+
 
     # close the simulator
     print(f"Data saved in: {output_path}")

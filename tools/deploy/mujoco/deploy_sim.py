@@ -8,6 +8,16 @@ import yaml
 
 ROOT_DIR = "/home/wcompton/repos/IsaacLab"
 UNITREE_MUJOCO_DIR = "/home/wcompton/repos/unitree_mujoco"
+
+
+def quat2yaw(q: torch.Tensor) -> torch.Tensor:
+    w, x, y, z = q[..., 0], q[..., 1], q[..., 2], q[..., 3]
+    siny_cosp = 2.0 * (w * z + x * y)
+    cosy_cosp = 1.0 - 2.0 * (y * y + z * z)
+    yaw = np.arctan2(siny_cosp, cosy_cosp)
+    return yaw
+
+
 def get_gravity_orientation(quaternion):
     qw = quaternion[0]
     qx = quaternion[1]
@@ -87,9 +97,11 @@ if __name__ == "__main__":
     # load policy
     policy = torch.load(policy_path)
 
-    N = 2000
+    N = int(simulation_duration / simulation_dt)
     q = np.zeros((N, d.qpos.shape[0]))
     dq = np.zeros((N, d.qvel.shape[0]))
+    vb = np.zeros((N, 2))
+    yaw = np.zeros((N, ))
     targ_q = np.zeros((N, 12))
     tau_t = np.zeros((N, 12))
 
@@ -97,13 +109,16 @@ if __name__ == "__main__":
         # Close the viewer automatically after simulation_duration wall-seconds.
         start = time.time()
 
-        while viewer.is_running() and time.time() - start < simulation_duration and counter < N:
+        while viewer.is_running() and counter < N:
             step_start = time.time()
             tau = pd_control(target_dof_pos, d.qpos[7:], kps, np.zeros_like(kds), d.qvel[6:], kds)
             d.ctrl[:] = tau
 
             q[counter] = d.qpos
             dq[counter] = d.qvel
+            yaw[counter] = quat2yaw(d.qpos[3:7])
+            vb[counter, 0] = d.qvel[0] * np.cos(yaw[counter]) + d.qvel[1] * np.sin(yaw[counter])
+            vb[counter, 1] = -d.qvel[0] * np.sin(yaw[counter]) + d.qvel[1] * np.cos(yaw[counter])
             targ_q[counter] = target_dof_pos
             tau_t[counter] = tau
 
@@ -120,27 +135,25 @@ if __name__ == "__main__":
                 dqj = d.qvel[6:]
                 quat = d.qpos[3:7]
                 omega = d.qvel[3:6]
-                v = d.qvel[:3]
 
                 qj = (qj - default_angles) * dof_pos_scale
                 dqj = dqj * dof_vel_scale
                 gravity_orientation = get_gravity_orientation(quat)
                 omega = omega * ang_vel_scale
 
-                obs[:3] = v
-                obs[3:6] = omega
-                obs[6:9] = gravity_orientation
-                obs[9:12] = cmd * cmd_scale
-                obs[12: 12 + num_actions] = qj[mujoco2isaac]
-                obs[12 + num_actions: 12 + 2 * num_actions] = dqj[mujoco2isaac]
-                obs[12 + 2 * num_actions: 12 + 3 * num_actions] = action
+                obs[:3] = omega
+                obs[3:6] = gravity_orientation
+                obs[6:9] = cmd * cmd_scale
+                obs[9: 9 + num_actions] = qj[mujoco2isaac]
+                obs[9 + num_actions: 9 + 2 * num_actions] = dqj[mujoco2isaac]
+                obs[9 + 2 * num_actions: 9 + 3 * num_actions] = action
                 obs_tensor = torch.from_numpy(obs).unsqueeze(0)
                 # policy inference
                 action = policy(obs_tensor).detach().numpy().squeeze()
-                action = action[isaac2mujoco]
+                action_mjc = action[isaac2mujoco]
 
                 # transform action to target_dof_pos
-                target_dof_pos = action * action_scale + default_angles
+                target_dof_pos = action_mjc * action_scale + default_angles
 
             # Pick up changes to the physics state, apply perturbations, update options from GUI.
             viewer.sync()
@@ -151,10 +164,22 @@ if __name__ == "__main__":
                 time.sleep(time_until_next_step)
 
     import matplotlib.pyplot as plt
-    for i in range(12):
-        plt.figure()
-        plt.plot(np.arange(N) * simulation_dt, q[:, 7 + i])
-        # plt.plot(np.arange(N) * simulation_dt, q[:, i])
-        plt.plot(np.arange(N) * simulation_dt, targ_q[:, i])
-        plt.legend(['q', 'targ'])
-        plt.show()
+    # for i in range(12):
+    #     plt.figure()
+    #     plt.plot(np.arange(N) * simulation_dt, q[:, 7 + i])
+    #     plt.plot(np.arange(N) * simulation_dt, targ_q[:, i])
+    #     plt.legend(['q', 'targ'])
+    #     plt.show()
+    t = np.arange(N) * simulation_dt
+    plt.figure()
+    plt.plot(t, vb)
+    wz = np.diff(yaw) / simulation_dt
+    wz[np.abs(wz) > 100] = np.nan
+    plt.plot(t[:-1], wz)
+    plt.legend(['vx', 'vy', 'wz'])
+    plt.show()
+
+    plt.figure()
+    plt.plot(t, q[:, 2])
+    plt.legend('height')
+    plt.show()
