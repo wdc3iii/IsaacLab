@@ -160,7 +160,9 @@ def joint_vel_rel(env: ManagerBasedEnv, asset_cfg: SceneEntityCfg = SceneEntityC
 """
 Sensors.
 """
-
+def phase(env: ManagerBasedEnv, period: float = 0.3):
+    phase = torch.tensor(2 * torch.pi / period * env.sim.current_time, device=env.device)
+    return torch.ones((env.num_envs, 1), device=env.device) * torch.tensor([[torch.sin(phase), torch.cos(phase)]], device=env.device)
 
 def height_scan(env: ManagerBasedEnv, sensor_cfg: SceneEntityCfg, offset: float = 0.5) -> torch.Tensor:
     """Height scan from the given sensor w.r.t. the sensor's frame.

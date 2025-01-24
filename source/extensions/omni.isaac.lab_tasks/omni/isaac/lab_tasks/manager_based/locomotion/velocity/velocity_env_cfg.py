@@ -177,6 +177,7 @@ class ObservationsCfg:
             params={"sensor_cfg": SceneEntityCfg("height_scanner")},
             clip=(-1.0, 1.0),
         )
+        phase = ObsTerm(func=mdp.phase, noise=Unoise(n_min=-0., n_max=0.))
 
         def __post_init__(self):
             self.enable_corruption = True
@@ -227,6 +228,7 @@ class ObservationsCfgWPos:
             noise=Unoise(n_min=-0.1, n_max=0.1),
             clip=(-1.0, 1.0),
         )
+        phase = ObsTerm(func=mdp.phase, noise=Unoise(n_min=-0., n_max=0.))
 
         def __post_init__(self):
             self.enable_corruption = True
@@ -347,6 +349,20 @@ class RewardsCfg:
         func=mdp.base_height_l2,
         weight=0.0,
         params={"target_height": 0.33},
+    )
+    feet_slide = RewTerm(
+        func=mdp.feet_slide,
+        weight=0.0,
+        params={"sensor_cfg": SceneEntityCfg("contact_forces", body_names=".*FOOT"), "asset_cfg": SceneEntityCfg("robot")},
+    )
+    foot_height = RewTerm(
+        func=mdp.foot_height,
+        weight=1.0,
+        params={
+            "command_name": "base_velocity",
+            "asset_cfg": SceneEntityCfg("robot", body_names=".*FOOT"),
+            "max_height": 0.1
+        }
     )
 
 

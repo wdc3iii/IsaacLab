@@ -59,6 +59,7 @@ from datetime import datetime
 import pickle
 from scipy.io import savemat
 import matplotlib.pyplot as plt
+from matplotlib.gridspec import GridSpec
 
 
 def quat2yaw(q: torch.Tensor) -> torch.Tensor:
@@ -130,13 +131,13 @@ def main():
     for i in range(env_cfg.num_iterations):
         # data structures to save data
         N = int(env_cfg.iter_duration_s / env.unwrapped.step_dt)
-        done_t = torch.zeros((N - 1, env.unwrapped.num_envs), dtype=torch.bool, device=env.device)
-        obs_t = torch.zeros((N, *env.unwrapped.observation_space['policy'].shape), device=env.device)
-        action_t = torch.zeros((N - 1, *env.unwrapped.action_space.shape))
-        z = torch.zeros((N - 1, env.unwrapped.num_envs, 3), device=env.device)
-        v = torch.zeros((N - 1, env.unwrapped.num_envs, 3), device=env.device)
-        p_x = torch.zeros((N - 1, env.unwrapped.num_envs, 3), device=env.device)
-        h = torch.zeros((N -1, env.unwrapped.num_envs), device=env.device)
+        done_t = torch.zeros((env.unwrapped.num_envs, N - 1), dtype=torch.bool, device=env.device)
+        obs_t = torch.zeros((env.unwrapped.num_envs, N, env.unwrapped.observation_space['policy'].shape[-1]), device=env.device)
+        action_t = torch.zeros((env.unwrapped.num_envs, N - 1, env.unwrapped.action_space.shape[-1]))
+        z = torch.zeros((env.unwrapped.num_envs, N - 1, 3), device=env.device)
+        v = torch.zeros((env.unwrapped.num_envs, N - 1, 3), device=env.device)
+        p_x = torch.zeros((env.unwrapped.num_envs, N - 1, 3), device=env.device)
+        h = torch.zeros((env.unwrapped.num_envs, N - 1), device=env.device)
 
         # run everything in inference mode
         with torch.inference_mode():
@@ -144,7 +145,7 @@ def main():
             env.reset()
             obs, info = env.get_observations()
             timestep = 0
-            obs_t[0] = obs
+            obs_t[:, 0] = obs
 
             # simulate environment
             while simulation_app.is_running() and timestep < N - 1:
@@ -153,14 +154,14 @@ def main():
                 # env stepping
                 obs, rew, dones, info = env.step(actions)
 
-                obs_t[timestep + 1] = obs.detach().clone()
-                action_t[timestep] = actions.detach().clone()
-                z[timestep] = env.unwrapped.command_manager._terms['base_velocity'].trajectory[:, 0].detach().clone()
-                v[timestep] = env.unwrapped.command_manager._terms['base_velocity'].v_trajectory[:, 0].detach().clone()
-                p_x[timestep, :, :2] = info['observations']['tracking'][:, :2].detach().clone()
-                h[timestep] = info['observations']['tracking'][:, 2].detach().clone()
-                p_x[timestep, :, 2] = quat2yaw(info['observations']['tracking'][:, 3:]).detach().clone()
-                done_t[timestep] = dones.detach().clone()
+                obs_t[:, timestep + 1] = obs.detach().clone()
+                action_t[:, timestep] = actions.detach().clone()
+                z[:, timestep] = env.unwrapped.command_manager._terms['base_velocity'].trajectory[:, 0].detach().clone()
+                v[:, timestep] = env.unwrapped.command_manager._terms['base_velocity'].v_trajectory[:, 0].detach().clone()
+                p_x[:, timestep, :2] = info['observations']['tracking'][:, :2].detach().clone()
+                h[:, timestep] = info['observations']['tracking'][:, 2].detach().clone()
+                p_x[:, timestep, 2] = quat2yaw(info['observations']['tracking'][:, 3:]).detach().clone()
+                done_t[:, timestep] = dones.detach().clone()
 
                 timestep += 1
                 if args_cli.video:
@@ -168,37 +169,57 @@ def main():
                     if timestep == args_cli.video_length:
                         break
 
-        fn_pickle = os.path.join(output_path, f"data_{i}.pickle")
-        fn_mat = os.path.join(output_path, f"data_{i}.mat")
+        fn_pickle = os.path.join(output_path, f"epoch_{i}.pickle")
+        fn_mat = os.path.join(output_path, f"epoch_{i}.mat")
 
-        data_dict = {"obs": obs_t, "act": action_t, "p_x": p_x, "z": z, "v": v, "done": done_t}
+        data_dict = {
+            "obs": obs_t.cpu().numpy(),
+            "act": action_t.cpu().numpy(),
+            "pz_x": p_x.cpu().numpy(),
+            "z": z.cpu().numpy(),
+            "v": v.cpu().numpy(),
+            "done": done_t.cpu().numpy()}
         with open(fn_pickle, 'wb') as f:
             pickle.dump(data_dict, f)
 
         savemat(
             fn_mat,
-            {key: value.cpu().numpy() for key, value in data_dict.items()}
+            data_dict
         )
 
         rbt_ind = 5
-        plt.figure()
-        plt.plot(h[:, rbt_ind].cpu().numpy())
-        plt.ylabel('Height')
-        plt.show()
 
-        fig, ax = plt.subplots(1, 2)
-        z_plt = z[:, rbt_ind, :].cpu().numpy()
-        px_plt = p_x[:, rbt_ind, :].cpu().numpy()
-        ax[0].plot(z_plt[:, 0], z_plt[:, 1])
-        ax[0].plot(px_plt[:, 0], px_plt[:, 1])
-        ax[0].set_xlabel('X')
-        ax[0].set_ylabel('Y')
-        ax[0].legend(['Planner', 'Tracker'])
-        ax[1].plot(px_plt[:, 0] - z_plt[:, 0])
-        ax[1].plot(px_plt[:, 1] - z_plt[:, 1])
+        # plt.figure()
+        # plt.plot(h[:, rbt_ind].cpu().numpy())
+        # plt.ylabel('Height')
+        # plt.show()
+
+        fig = plt.figure()
+        gs = GridSpec(2, 2, figure=fig)
+
+        # Span (1,1) and (2,1)
+        ax1 = fig.add_subplot(gs[:, 0])
+        # Individual subplots
+        ax2 = fig.add_subplot(gs[0, 1])
+        ax3 = fig.add_subplot(gs[1, 1])
+
+        z_plt = z[rbt_ind, :, ].cpu().numpy()
+        px_plt = p_x[rbt_ind, :, ].cpu().numpy()
+        v_plt = v[rbt_ind, :, ].cpu().numpy()
+        t = torch.arange(z_plt.shape[0]).cpu().numpy() * env.unwrapped.step_dt
+        ax1.plot(z_plt[:, 0], z_plt[:, 1])
+        ax1.plot(px_plt[:, 0], px_plt[:, 1])
+        ax1.set_xlabel('X')
+        ax1.set_ylabel('Y')
+        ax1.legend(['Planner', 'Tracker'])
+        ax2.plot(t, px_plt[:, 0] - z_plt[:, 0])
+        ax2.plot(t, px_plt[:, 1] - z_plt[:, 1])
         yaw_err = px_plt[:, 2] - z_plt[:, 2]
-        ax[1].plot((yaw_err + torch.pi) % (2 * torch.pi) - torch.pi)
-        ax[1].legend(['e_x', 'e_y', 'e_heading'])
+        ax2.plot(t, (yaw_err + torch.pi) % (2 * torch.pi) - torch.pi)
+        ax2.legend(['e_x', 'e_y', 'e_heading'])
+
+        ax3.plot(t, v_plt)
+        ax3.legend(['v_x,d', 'v_y,d', 'w_z,d'])
         plt.show()
         plt.close('all')
 

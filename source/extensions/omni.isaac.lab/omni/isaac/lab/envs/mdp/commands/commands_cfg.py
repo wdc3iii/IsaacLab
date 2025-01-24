@@ -126,7 +126,7 @@ class TrajectoryCommandCfg(CommandTermCfg):
     """The number of trajectory planning nodes"""
 
     t_min: float = 0.5
-    t_max: float = 5.0
+    t_max: float = 10.
     """Upper and lower bounds on when trajectory is randomized"""
 
     freq_min: float = 0.1
@@ -144,6 +144,11 @@ class TrajectoryCommandCfg(CommandTermCfg):
     init_pos_rnd: float = 0.5
     init_heading_rnd: float = 3.14
     """Random noise added to initial condition (for exploration)"""
+
+    prop_v_max: float = 0.75
+    prop_softmax: float = 0.1
+    softmax_temp: float = 0.05
+    """When randomizing velocity upper bound, what proportion to have at maximum velocity"""
 
     @configclass
     class Ranges:

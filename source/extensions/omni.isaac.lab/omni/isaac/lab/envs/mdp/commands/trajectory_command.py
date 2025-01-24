@@ -92,6 +92,7 @@ class TrajectoryCommand(CommandTerm):
         self.k = torch.zeros(self.num_envs, device=self.device, dtype=torch.int)
         # Weights perform linear combination of various commands
         self.weights = torch.zeros((self.num_envs, 3, 5), device=self.device)
+        self.prop_v_max = torch.zeros((self.num_envs, 3), device=self.device)
         self.sample_hold_input = torch.zeros((self.num_envs, 3), device=self.device)
         self.extreme_input = torch.zeros((self.num_envs, 3), device=self.device)
         self.ramp_t_start = torch.zeros((self.num_envs, 3), device=self.device)
@@ -108,6 +109,7 @@ class TrajectoryCommand(CommandTerm):
         self.rnd_inds = torch.zeros((self.num_envs, 3), dtype=torch.bool, device=self.device)
         self.noise_std = torch.zeros((self.num_envs, 3), device=self.device)
         self.t_rem_weights = torch.zeros((self.num_envs, 3), device=self.device)
+        self.t_rem_prop_v_max = torch.zeros((self.num_envs, 3), device=self.device)
         self.t_rem_sample_hold = torch.zeros((self.num_envs, 3), device=self.device)
         self.t_rem_extreme = torch.zeros((self.num_envs, 3), device=self.device)
         self.t_rem_ramp = torch.zeros((self.num_envs, 3), device=self.device)
@@ -173,6 +175,7 @@ class TrajectoryCommand(CommandTerm):
         self.t[env_ids] = self.k[env_ids] * self.cfg.dt * self.cfg.rel_dt
         self.last_step_t[env_ids] = 0
         self.t_rem_weights[env_ids] = -1
+        self.t_rem_prop_v_max[env_ids] = -1
         self.t_rem_sample_hold[env_ids] = -1
         self.t_rem_extreme[env_ids] = -1
         self.t_rem_ramp[env_ids] = -1
@@ -225,6 +228,7 @@ class TrajectoryCommand(CommandTerm):
         self._resample_exp_input(env_mask)
         self._resample_rnd_input(env_mask)
         self._resample_weight(env_mask)
+        self._resample_prop_v_max(env_mask)
 
     def _resample_sample_hold_input(self, env_mask):
         idx = torch.logical_and(env_mask, self.t_rem_sample_hold < 0)
@@ -277,10 +281,19 @@ class TrajectoryCommand(CommandTerm):
         idx = torch.logical_and(env_mask, self.t_rem_weights < 0)
         if torch.any(idx):
             weight_mask = idx[:, :, None].repeat((1, 1, self.weights.shape[-1]))
-            self.weights[weight_mask] = self.rnd_vec(torch.sum(idx) * self.weights.shape[-1])
-            self.weights[idx, :] /= torch.linalg.norm(self.weights[idx, :], dim=-1, keepdim=True)
+            self.weights[weight_mask] = self.rnd_vec(torch.sum(idx) * self.weights.shape[-1], 0., 1.)
+            self.weights /= torch.sum(self.weights, dim=-1, keepdim=True)
+            soft_max_inds = torch.rand(self.weights.shape[:2]) <= self.cfg.prop_softmax
+            self.weights[soft_max_inds] = torch.softmax(self.weights[soft_max_inds] / self.cfg.softmax_temp, dim=-1)
             # TODO: alter weight distribution?
             self.t_rem_weights[idx] = self.rnd_vec(torch.sum(idx), self.cfg.t_min, self.cfg.t_max)
+
+    def _resample_prop_v_max(self, env_mask):
+        idx = torch.logical_and(env_mask, self.t_rem_prop_v_max < 0)
+        if torch.any(idx):
+            a = self.cfg.prop_v_max
+            self.prop_v_max[idx] = torch.clamp(self.rnd_vec(torch.sum(idx), 0, 1 + a / (1 - a)), 0., 1.)
+            self.t_rem_prop_v_max[idx] = self.rnd_vec(torch.sum(idx), self.cfg.t_min, self.cfg.t_max)
 
     def _const_input(self):
         return self.sample_hold_input
@@ -314,7 +327,7 @@ class TrajectoryCommand(CommandTerm):
         v[self.rnd_inds] += self.rnd_vec(torch.sum(self.rnd_inds)) * self.rnd_mag[self.rnd_inds]
         v[self.rnd_inds] = torch.clamp(v[self.rnd_inds], -1, 1)
 
-        return (self.v_max - self.v_min) * (v / 2 + 0.5) + self.v_min
+        return ((self.v_max - self.v_min) * (v / 2 + 0.5) + self.v_min) * self.prop_v_max
 
     def _update_command(self):
         """Post-processes the velocity command.
@@ -365,6 +378,7 @@ class TrajectoryCommand(CommandTerm):
         )
 
     def _step_rom_idx(self, idx):
+        self._resample_command(idx)
         # Get input to apply for trajectory
         v = self.get_input_t(self.t)
         # Enforce standing

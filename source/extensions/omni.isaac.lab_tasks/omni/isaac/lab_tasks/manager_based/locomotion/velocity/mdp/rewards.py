@@ -66,7 +66,7 @@ def feet_air_time_positive_biped(env, command_name: str, threshold: float, senso
     return reward
 
 
-def feet_slide(env, sensor_cfg: SceneEntityCfg, asset_cfg: SceneEntityCfg = SceneEntityCfg("robot")) -> torch.Tensor:
+def feet_slide(env, sensor_cfg: SceneEntityCfg, asset_cfg: SceneEntityCfg) -> torch.Tensor:
     """Penalize feet sliding.
 
     This function penalizes the agent for sliding its feet on the ground. The reward is computed as the
@@ -79,6 +79,14 @@ def feet_slide(env, sensor_cfg: SceneEntityCfg, asset_cfg: SceneEntityCfg = Scen
     asset = env.scene[asset_cfg.name]
     body_vel = asset.data.body_lin_vel_w[:, sensor_cfg.body_ids, :2]
     reward = torch.sum(body_vel.norm(dim=-1) * contacts, dim=1)
+    return reward
+
+
+def foot_height(env, command_name: str, asset_cfg: SceneEntityCfg, max_height: float) -> torch.Tensor:
+    asset = env.scene[asset_cfg.name]
+    foot_h = asset.data.body_pos_w[:, asset_cfg.body_ids, 2]
+    reward = torch.sum(torch.clamp(foot_h, 0, max_height), dim=1)
+    reward *= torch.norm(env.command_manager.get_command(command_name)[:, :2], dim=1) > 0.1
     return reward
 
 
