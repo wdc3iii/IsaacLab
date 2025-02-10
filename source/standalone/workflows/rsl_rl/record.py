@@ -178,7 +178,8 @@ def main():
             "pz_x": p_x.cpu().numpy(),
             "z": z.cpu().numpy(),
             "v": v.cpu().numpy(),
-            "done": done_t.cpu().numpy()}
+            "done": done_t.cpu().numpy()
+        }
         with open(fn_pickle, 'wb') as f:
             pickle.dump(data_dict, f)
 

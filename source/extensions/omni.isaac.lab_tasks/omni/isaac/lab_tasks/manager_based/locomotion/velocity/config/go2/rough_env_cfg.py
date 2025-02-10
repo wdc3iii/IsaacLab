@@ -2,23 +2,125 @@
 # All rights reserved.
 #
 # SPDX-License-Identifier: BSD-3-Clause
+from typing import TYPE_CHECKING
 
+import numpy as np
 from omni.isaac.lab.utils import configclass
 
-from omni.isaac.lab_tasks.manager_based.locomotion.velocity.velocity_env_cfg import LocomotionVelocityRoughEnvCfg, TrackingCommandsCfg, TrackingObservationsCfg
+from omni.isaac.lab_tasks.manager_based.locomotion.velocity.velocity_env_cfg import LocomotionVelocityRoughEnvCfg, TrackingCommandsCfg, TrackingObservationsCfg, RewardsCfg
 from omni.isaac.lab.terrains.config.rough import EASY_ROUGH_TERRAINS_CFG
+import omni.isaac.lab_tasks.manager_based.locomotion.velocity.mdp as mdp
+from omni.isaac.lab.managers import RewardTermCfg as RewTerm
+import math
+from omni.isaac.lab.managers import SceneEntityCfg
+import torch
 
 ##
 # Pre-defined configs
 ##
 from omni.isaac.lab_assets.unitree import UNITREE_GO2_CFG  # isort: skip
 
+GAIT_PHASES = {
+    # trot (diagonals together).
+    0: torch.tensor([0, torch.pi, torch.pi, 0]),
+    # walk (staggered diagonals).
+    1: torch.tensor([0, 0.5 * torch.pi, torch.pi, 1.5 * torch.pi]),
+    # pace (same side legs together).
+    2: torch.tensor([0, torch.pi, 0, torch.pi]),
+    # bound (front and back legs together).
+    3: torch.tensor([0, 0, torch.pi, torch.pi]),
+    # pronk (all legs together).
+    4: torch.tensor([0, 0, 0, 0]),
+}
+
+def get_gait(env, gait):
+    return torch.ones((env.num_envs, 1), device=env.device) * GAIT_PHASES[gait][None, :].to(env.device)
+
+joint_traj = torch.tensor(np.loadtxt('/home/wcompton/repos/IsaacLab/source/extensions/omni.isaac.lab_tasks/omni/isaac/lab_tasks/manager_based/locomotion/velocity/config/go2/joint_traj/joint_trajectory.txt'))
+joint_times = torch.arange(joint_traj.shape[0]) / (joint_traj.shape[0] - 1)
+
+@configclass
+class QuadrupedRewardsCfg(RewardsCfg):
+
+    # Track Base height
+    base_height_l2 = RewTerm(
+        func=mdp.base_height_l2,
+        weight=-1.0,
+        params={"target_height": 0.33},
+    )
+
+    # Track contact
+    phase_based_contact = RewTerm(
+        func=mdp.phase_based_contact,
+        weight=1.0,
+        params={
+            "command_name": "base_velocity",
+            "sensor_cfg": SceneEntityCfg("contact_forces", body_names=".*foot"),
+            "period": 0.3,
+            "stand_threshold": 0.05,
+            "get_gait_offset": get_gait,
+            "get_gait_args": {"gait": 0}
+        }
+    )
+
+    # Track swing foot height
+    swing_foot_height = RewTerm(
+        func=mdp.swing_foot_height,
+        weight=0.5,
+        params={
+            "command_name": "base_velocity",
+            "asset_cfg": SceneEntityCfg("robot", body_names=".*foot"),
+            "swing_height": 0.08,
+            "period": 0.3,
+            "stand_threshold": 0.05,
+            "std": math.sqrt(0.001),  # Maximum error is about stand_threshold
+            "get_gait_offset": get_gait,
+            "get_gait_args": {"gait": 0}
+        }
+    )
+
+    # Track Swing foot xy
+    foot_pos_xy = RewTerm(
+        func=mdp.foot_pos_xy,
+        weight=0.0,
+        params={
+            "asset_cfg": SceneEntityCfg("robot", body_names=".*foot"),
+            "foot_xy_des": torch.tensor([
+                [0.177822, 0.110444],
+                [0.177822, -0.110444],
+                [-0.270516, 0.111372],
+                [-0.270516, -0.111372]
+            ]),
+            "std": math.sqrt(0.0025),  # wider peak than standing
+        }
+    )
+    # Track joint trajectory
+    joint_trajectories = RewTerm(
+        func=mdp.joint_trajectories,
+        weight=0.5,
+        params={
+            "command_name": "base_velocity",
+            "asset_cfg": SceneEntityCfg("robot"),
+            "period": 0.3,
+            "joint_times": joint_times,
+            "joint_trajectory": joint_traj,
+            "stand_threshold": 0.05,
+            "std": math.sqrt(0.1),  # Maximum error is about stand_threshold
+            "get_gait_offset": get_gait,
+            "get_gait_args": {"gait": 0}
+        }
+    )
 
 @configclass
 class UnitreeGo2RoughEnvCfg(LocomotionVelocityRoughEnvCfg):
+
+    rewards: QuadrupedRewardsCfg = QuadrupedRewardsCfg()
     def __post_init__(self):
         # post init of parent
         super().__post_init__()
+
+        # Set observation period to match reward period
+        self.observations.policy.phase.params["period"] = self.rewards.phase_based_contact.params["period"]
 
         self.scene.robot = UNITREE_GO2_CFG.replace(prim_path="{ENV_REGEX_NS}/Robot")
         self.scene.height_scanner.prim_path = "{ENV_REGEX_NS}/Robot/base"
@@ -49,15 +151,17 @@ class UnitreeGo2RoughEnvCfg(LocomotionVelocityRoughEnvCfg):
         }
 
         # rewards
-        self.rewards.feet_air_time.params["sensor_cfg"].body_names = ".*_foot"
-        self.rewards.feet_slide.params["sensor_cfg"].body_names = ".*_foot"
-        self.rewards.foot_height.params["asset_cfg"].body_names = ".*_foot"
-        self.rewards.feet_air_time.weight = 0.01
+        self.rewards.feet_slide = None
+        self.rewards.feet_air_time = None
         self.rewards.undesired_contacts = None
+        self.rewards.foot_height = None
         self.rewards.dof_torques_l2.weight = -0.0002
         self.rewards.track_lin_vel_xy_exp.weight = 1.5
         self.rewards.track_ang_vel_z_exp.weight = 0.75
         self.rewards.dof_acc_l2.weight = -2.5e-7
+        self.rewards.joint_trajectories.params["joint_trajectory"] = self.rewards.joint_trajectories.params["joint_trajectory"].to(self.sim.device)
+        self.rewards.joint_trajectories.params["joint_times"] = self.rewards.joint_trajectories.params["joint_times"].to(self.sim.device)
+
 
         # terminations
         self.terminations.base_contact.params["sensor_cfg"].body_names = "base"

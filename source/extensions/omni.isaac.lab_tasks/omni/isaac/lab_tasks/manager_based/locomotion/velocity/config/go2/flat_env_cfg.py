@@ -17,15 +17,9 @@ class UnitreeGo2FlatEnvCfg(UnitreeGo2RoughEnvCfg):
         self.scene.num_envs = 4096 * 2
 
         # override rewards
-        # self.rewards.flat_orientation_l2.weight = -2.5
-        # self.rewards.feet_air_time.weight = 0.25
-        # self.rewards.base_height_l2.weight = -1.0
         self.rewards.flat_orientation_l2.weight = -2.5
-        self.rewards.feet_air_time.weight = 1.0
-        self.rewards.feet_air_time.threshold = 0.3  # default is 0.5
-        self.rewards.feet_slide.weight = -1.0
-        self.rewards.foot_height.weight = 2.0
-        self.rewards.base_height_l2.weight = -5.
+        self.rewards.base_height_l2.weight = -1.
+        self.rewards.joint_trajectories.weight = 1.
 
         # change terrain to flat
         self.scene.terrain.terrain_type = "plane"

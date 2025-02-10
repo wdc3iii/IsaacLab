@@ -20,10 +20,11 @@ from omni.isaac.lab.utils.math import quat_rotate_inverse, yaw_quat
 
 if TYPE_CHECKING:
     from omni.isaac.lab.envs import ManagerBasedRLEnv
+    from typing import Callable
 
 
 def feet_air_time(
-    env: ManagerBasedRLEnv, command_name: str, sensor_cfg: SceneEntityCfg, threshold: float
+    env: ManagerBasedRLEnv, command_name: str, sensor_cfg: SceneEntityCfg, threshold: float, stand_threshold: float=0.1
 ) -> torch.Tensor:
     """Reward long steps taken by the feet using L2-kernel.
 
@@ -40,11 +41,13 @@ def feet_air_time(
     last_air_time = contact_sensor.data.last_air_time[:, sensor_cfg.body_ids]
     reward = torch.sum((last_air_time - threshold) * first_contact, dim=1)
     # no reward for zero command
-    reward *= torch.norm(env.command_manager.get_command(command_name)[:, :2], dim=1) > 0.1
+    reward *= torch.norm(env.command_manager.get_command(command_name)[:, :2], dim=1) > stand_threshold
     return reward
 
 
-def feet_air_time_positive_biped(env, command_name: str, threshold: float, sensor_cfg: SceneEntityCfg) -> torch.Tensor:
+def feet_air_time_positive_biped(
+        env, command_name: str, threshold: float, sensor_cfg: SceneEntityCfg, stand_threshold: float=0.1
+) -> torch.Tensor:
     """Reward long steps taken by the feet for bipeds.
 
     This function rewards the agent for taking steps up to a specified threshold and also keep one foot at
@@ -62,7 +65,7 @@ def feet_air_time_positive_biped(env, command_name: str, threshold: float, senso
     reward = torch.min(torch.where(single_stance.unsqueeze(-1), in_mode_time, 0.0), dim=1)[0]
     reward = torch.clamp(reward, max=threshold)
     # no reward for zero command
-    reward *= torch.norm(env.command_manager.get_command(command_name)[:, :2], dim=1) > 0.1
+    reward *= torch.norm(env.command_manager.get_command(command_name)[:, :2], dim=1) > stand_threshold
     return reward
 
 
@@ -82,11 +85,11 @@ def feet_slide(env, sensor_cfg: SceneEntityCfg, asset_cfg: SceneEntityCfg) -> to
     return reward
 
 
-def foot_height(env, command_name: str, asset_cfg: SceneEntityCfg, max_height: float) -> torch.Tensor:
+def foot_height(env, command_name: str, asset_cfg: SceneEntityCfg, max_height: float, stand_threshold: float) -> torch.Tensor:
     asset = env.scene[asset_cfg.name]
     foot_h = asset.data.body_pos_w[:, asset_cfg.body_ids, 2]
     reward = torch.sum(torch.clamp(foot_h, 0, max_height), dim=1)
-    reward *= torch.norm(env.command_manager.get_command(command_name)[:, :2], dim=1) > 0.1
+    reward *= torch.norm(env.command_manager.get_command(command_name)[:, :2], dim=1) > stand_threshold
     return reward
 
 
@@ -111,3 +114,117 @@ def track_ang_vel_z_world_exp(
     asset = env.scene[asset_cfg.name]
     ang_vel_error = torch.square(env.command_manager.get_command(command_name)[:, 2] - asset.data.root_ang_vel_w[:, 2])
     return torch.exp(-ang_vel_error / std**2)
+
+# Phase/Tracking based rewards
+def get_time_phase(t, period, offset):
+    return 2 * torch.pi * t / period + offset
+
+def get_phase(t, period, offset):
+    return torch.sin(get_time_phase(t, period, offset))
+
+def is_stance_phase(t, period, offset):
+    phase = get_phase(t, period, offset)
+    return phase < 0
+
+# Incentivize contact to align with desired gait
+def phase_based_contact(
+    env: ManagerBasedRLEnv, command_name: str, sensor_cfg: SceneEntityCfg, period: float,
+    stand_threshold: float, get_gait_offset: Callable, get_gait_args: dict
+) -> torch.Tensor:
+    # Get contacts
+    contact_sensor: ContactSensor = env.scene.sensors[sensor_cfg.name]
+    contacts = contact_sensor.data.net_forces_w_history[:, :, sensor_cfg.body_ids, :].norm(dim=-1).max(dim=1)[0] > 1.0
+
+    # Get commands
+    gait_phase_offset = get_gait_offset(env, **get_gait_args)
+    vel_cmd = env.command_manager.get_command(command_name)
+
+    # Compute desired contacts
+    desired_contacts = is_stance_phase(env.sim.current_time, period, gait_phase_offset)
+    desired_contacts[torch.norm(vel_cmd, dim=-1) < stand_threshold, :] = True
+
+    correct_contacts = desired_contacts == contacts
+    return torch.mean(correct_contacts.float(), dim=-1)
+
+# Incentivize tracking a particular swing foot trajectory (quadruped)
+def swing_foot_height(
+    env: ManagerBasedRLEnv, command_name: str, asset_cfg: SceneEntityCfg, swing_height: float,
+    period: float, stand_threshold: float,  std: float, get_gait_offset: Callable, get_gait_args: dict
+) -> torch.Tensor:
+    # Get commands
+    gait_phase_offset = get_gait_offset(env, **get_gait_args)
+    vel_cmd = env.command_manager.get_command(command_name)
+
+    # Get foot height
+    asset = env.scene[asset_cfg.name]
+    foot_h = asset.data.body_pos_w[:, asset_cfg.body_ids, 2]
+
+    # Get desired foot height
+    def cubic_bezier_interpolation(z_start, z_end, t):
+        t = torch.clamp(t, 0, 1)
+        z_diff = z_end - z_start
+        bezier = t ** 3 + 3 * (t ** 2 * (1 - t))
+        return z_start + z_diff * bezier
+
+    t_phase = get_time_phase(env.sim.current_time, period, gait_phase_offset) % (2 * torch.pi)
+    t_phase = t_phase / torch.pi
+    des_foot_h = torch.where(
+        t_phase <= 0.5,
+        cubic_bezier_interpolation(0, swing_height, 2 * t_phase),       # Upward portion of swing
+        cubic_bezier_interpolation(swing_height, 0, 2 * t_phase - 1)     # downward portion of swing
+    )
+    # If foot should be in stance, zero reward signal
+    desired_contacts = is_stance_phase(env.sim.current_time, period, gait_phase_offset)
+    desired_contacts[torch.norm(vel_cmd, dim=-1) < stand_threshold, :] = True
+    des_foot_h[desired_contacts] = 0
+
+    # Compute foot height rewards
+    height_error = torch.square(foot_h - des_foot_h)
+    rew = torch.exp(-height_error / std**2)
+
+    return torch.mean(rew, dim=-1)
+
+def joint_trajectories(env, command_name: str, asset_cfg: SceneEntityCfg, period: float,
+                       joint_times: torch.Tensor, joint_trajectory: torch.Tensor, stand_threshold: float,
+                       std: float, get_gait_offset: Callable, get_gait_args: dict) -> torch.Tensor:
+    asset = env.scene[asset_cfg.name]
+    vel_cmd = env.command_manager.get_command(command_name)
+    gait_phase_offset = get_gait_offset(env, **get_gait_args)
+
+    q_pos = asset.data.joint_pos.detach().clone()
+
+    # interpolate joint positions
+    t_phase = get_time_phase(env.sim.current_time, period, gait_phase_offset) % (2 * torch.pi)
+    t_phase = t_phase / torch.pi
+    t_phase = t_phase.repeat(1, 3)
+    idxs = torch.searchsorted(joint_times, t_phase.clamp(joint_times[0], joint_times[-1])) - 1
+    col_indices = torch.arange(idxs.shape[1]).expand(idxs.shape[0], -1)
+    # Linear interpolation
+    t0, t1 = joint_times[idxs], joint_times[torch.clamp(idxs + 1, 0, joint_times.shape[0] - 1)]
+    w = (t_phase - t0) / (t1 - t0)
+    q_des = torch.where(
+        t_phase < 1,
+        (1 - w) * joint_trajectory[idxs, col_indices] + w * joint_trajectory[idxs + 1, col_indices],
+        joint_trajectory[-1]
+    )  # - asset.data.default_joint_pos
+    q_des[torch.norm(vel_cmd, dim=-1) < stand_threshold, :] = joint_trajectory[0]
+    error = q_pos - q_des
+    return torch.mean(torch.exp(-torch.square(error)/ std**2), dim=-1)
+
+
+    # Incentivize foot to be under the hip.
+def foot_pos_xy(
+    env: ManagerBasedRLEnv, asset_cfg: SceneEntityCfg, foot_xy_des: torch.tensor, std: float
+):
+    # Get foot height
+    asset = env.scene[asset_cfg.name]
+    foot_xy_w = asset.data.body_pos_w[:, asset_cfg.body_ids, :2] - asset.data.root_pos_w[:, :2][:, None, :]
+    heading = asset.data.heading_w[:, None]
+    foot_xy_b = torch.stack([
+        foot_xy_w[:, :, 0] * torch.cos(heading) + foot_xy_w[:, :, 1] * torch.sin(heading),
+        -foot_xy_w[:, :, 0] * torch.sin(heading) + foot_xy_w[:, :, 1] * torch.cos(heading)
+    ], dim=-1)
+    foot_error = foot_xy_b - foot_xy_des.to(env.device)
+    foot_error = torch.sum(foot_error * foot_error, dim=-1)
+
+    return torch.mean(torch.exp(-foot_error / std**2), dim=-1)
