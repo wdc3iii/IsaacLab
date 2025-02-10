@@ -60,4 +60,5 @@ _build
 
 # Matlab
 *.mat
+*.asv
 *.csv
