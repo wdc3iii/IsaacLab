@@ -1,5 +1,7 @@
+import glfw
 import mujoco
 import numpy as np
+import matplotlib.pyplot as plt
 
 
 def cubic_bezier_interpolation(z_start, z_end, t):
@@ -121,37 +123,69 @@ def generate_gait_libray(v_xs, v_ys, w_zs, swing_height=0.08, T=0.4, N=100):
     return ts, q_refs, foot_refs
 
 if __name__ == "__main__":
+    v_xs = np.load("references/go2_vxs.npy")
+    v_ys = np.load("references/go2_vys.npy")
+    w_zs = np.load("references/go2_wzs.npy")
+    ts = np.load("references/go2_reference_ts.npy")
+    q_refs = np.load("references/go2_reference_qs.npy")
+    foot_refs = np.load("references/go2_reference_foot_refs.npy")
 
-    v_xs = np.linspace(-1.0, 1.5, 11)
-    v_ys = np.linspace(-0.75, 0.75, 7)
-    w_zs = np.linspace(-0.5, 0.5, 5)
+    v_x = 0.1
+    v_y = 0.01
+    w_z = 0.2
 
-    ts, q_refs, foot_refs = generate_gait_libray(v_xs, v_ys, w_zs)
+    # Load the XML model
+    model = mujoco.MjModel.from_xml_path("go2_fixed.xml")
+    data = mujoco.MjData(model)
 
-    # q_refs is currently mid-stance to mid-stance. We want stance -> swing
-    ind_75 = int(ts.size * 0.75)
-    q_refs = np.concatenate((q_refs[..., -ind_75:, :], q_refs[..., :ind_75, :]), axis=-2)
-    foot_refs = np.concatenate((foot_refs[..., -ind_75:, :, :], foot_refs[..., :ind_75, :, :]), axis=-3)
+    # 1. Load keyframe and set the robot state
+    keyframe_id = 0  # Assuming the keyframe ID you want to use is 0
+    mujoco.mj_resetDataKeyframe(model, data, keyframe_id)
+    mujoco.mj_forward(model, data)  # Perform forward kinematics
+    print("Loaded keyframe:", keyframe_id)
 
-    np.save("references/go2_vxs.npy", v_xs)
-    np.save("references/go2_vys.npy", v_ys)
-    np.save("references/go2_wzs.npy", w_zs)
-    np.save("references/go2_reference_ts.npy", ts)
-    np.save("references/go2_reference_qs.npy", q_refs)
-    np.save("references/go2_reference_foot_refs.npy", foot_refs)
+    foot_names = ["FL_foot_site", "FR_foot_site", "RL_foot_site", "RR_foot_site"]
+    base_foot_positions = {}
+    foot_ids = []
+    for foot in foot_names:
+        foot_id = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_SITE, foot)
+        foot_ids.append(foot_id)
+        site_pos = data.site_xpos[foot_id]
+        base_foot_positions[foot_id] = site_pos.copy()
+        print(f"Position of {foot}: {site_pos}")
 
-    joint_names_isaac = [
-        "FL_hip_joint", "FR_hip_joint", "RL_hip_joint", "RR_hip_joint",
-        "FL_thigh_joint", "FR_thigh_joint", "RL_thigh_joint", "RR_thigh_joint",
-        "FL_calf_joint", "FR_calf_joint", "RL_calf_joint", "RR_calf_joint"
-    ]
-    joint_names_mujoco = [
-        "FR_hip_joint", "FR_thigh_joint", "FR_calf_joint",
-        "FL_hip_joint", "FL_thigh_joint", "FL_calf_joint",
-        "RR_hip_joint", "RR_thigh_joint", "RR_calf_joint",
-        "RL_hip_joint", "RL_thigh_joint", "RL_calf_joint"
-    ]
+    # Initialize GLFW for visualization
+    glfw.init()
+    window = glfw.create_window(1200, 800, "MuJoCo Viewer", None, None)
+    glfw.make_context_current(window)
 
-    mujoco_to_isaac = [joint_names_mujoco.index(joint_name) for joint_name in joint_names_isaac]
-    isaac_to_mujoco = [joint_names_isaac.index(joint_name) for joint_name in joint_names_mujoco]
-    np.save("references/go2_reference_qs_isaac.txt", q_refs[..., mujoco_to_isaac])
+    # Create visualization objects
+    scene = mujoco.MjvScene(model, maxgeom=10000)
+    cam = mujoco.MjvCamera()
+    opt = mujoco.MjvOption()
+    context = mujoco.MjrContext(model, mujoco.mjtFontScale.mjFONTSCALE_100)
+
+    # Set camera properties
+    cam.type = mujoco.mjtCamera.mjCAMERA_FREE
+
+    # Find interpolation indices
+    vx_low = np.where(v_xs <= v_x)[0][-1]   # Last index less than v_x
+    vx_high = np.argmax(v_xs >= v_x)        # First index greater than v_x
+    vy_low = np.where(v_ys <= v_y)[0][-1]  # Last index less than v_x
+    vy_high = np.argmax(v_ys >= v_y)  # First index greater than v_x
+    wz_low = np.where(w_zs <= w_z)[0][-1]  # Last index less than v_x
+    wz_high = np.argmax(w_zs >= w_z)  # First index greater than v_x
+
+    while True:
+        # TODO: interpolate q out of data
+        data.qpos[:] = q
+        mujoco.mj_forward(model, data)
+
+        # Update scene and render
+        mujoco.mjv_updateScene(model, data, opt, None, cam, mujoco.mjtCatBit.mjCAT_ALL, scene)
+        mujoco.mjr_render(mujoco.MjrRect(0, 0, 1200, 800), scene, context)
+
+        glfw.swap_buffers(window)
+        glfw.poll_events()
+
+    glfw.terminate()
