@@ -12,12 +12,14 @@ the curriculum introduced by the function.
 from __future__ import annotations
 
 import torch
+import math
 from collections.abc import Sequence
 from typing import TYPE_CHECKING
 
 from omni.isaac.lab.assets import Articulation
 from omni.isaac.lab.managers import SceneEntityCfg
 from omni.isaac.lab.terrains import TerrainImporter
+import omni.isaac.lab_tasks.manager_based.locomotion.velocity.mdp as mdp
 
 if TYPE_CHECKING:
     from omni.isaac.lab.envs import ManagerBasedRLEnv
@@ -53,3 +55,16 @@ def terrain_levels_vel(
     terrain.update_env_origins(env_ids, move_up, move_down)
     # return the mean terrain level
     return torch.mean(terrain.terrain_levels.float())
+
+
+def vel_command_range(env: ManagerBasedRLEnv, env_ids: Sequence[int],
+                      vx_max: float, vx_min: float, vy: float, wz: float, fracs: list, num_steps: list):
+    i = 0
+    while i < len(num_steps) - 1 and env.common_step_counter > num_steps[i]:
+        i += 1
+
+    frac = fracs[i]
+    env.command_manager.cfg.base_velocity.ranges.lin_vel_x = (vx_min * frac, vx_max * frac)
+    env.command_manager.cfg.base_velocity.ranges.lin_vel_y = (-vy * frac, vy * frac)
+    env.command_manager.cfg.base_velocity.ranges.ang_vel_z = (-wz * frac, wz * frac)
+

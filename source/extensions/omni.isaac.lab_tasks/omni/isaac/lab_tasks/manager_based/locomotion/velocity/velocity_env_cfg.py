@@ -377,6 +377,14 @@ class CurriculumCfg:
     """Curriculum terms for the MDP."""
 
     terrain_levels = CurrTerm(func=mdp.terrain_levels_vel)
+    # vel_cmd_range = CurrTerm(func=mdp.vel_command_range, params={
+    #     "vx_max": 2.,
+    #     "vx_min": -1.5,
+    #     "vy": 1.,
+    #     "wz": 2.,
+    #     "fracs": [0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0],
+    #     "num_steps": [400, 500, 600, 700, 800, 900, 1000]
+    # })
 
 
 ##

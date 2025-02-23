@@ -20,12 +20,13 @@ class UnitreeGo2FlatEnvCfg(UnitreeGo2RoughEnvCfg):
         self.rewards.flat_orientation_l2.weight = -2.5
         self.rewards.base_height_l2.weight = -1.
         self.rewards.joint_trajectories.weight = 1.
+        self.rewards.track_lin_vel_xy_exp.weight = 2.5
 
         # Override velocity limits
-        self.commands.base_velocity.ranges.lin_vel_x = (-2.25, 3.5)
-        self.commands.base_velocity.ranges.lin_vel_y = (-1.25, 1.25)
-        self.commands.base_velocity.ranges.lin_vel_z = (-3, 3)
-        self.rewards.track_lin_vel_xy_exp.params["std"] = 1
+        # self.commands.base_velocity.ranges.lin_vel_x = (-1.5, 2.)
+        # self.commands.base_velocity.ranges.lin_vel_y = (-1., 1.)
+        # self.commands.base_velocity.ranges.lin_vel_z = (-2, 2)
+        # self.rewards.track_lin_vel_xy_exp.params["std"] = 1
 
         # change terrain to flat
         self.scene.terrain.terrain_type = "plane"
