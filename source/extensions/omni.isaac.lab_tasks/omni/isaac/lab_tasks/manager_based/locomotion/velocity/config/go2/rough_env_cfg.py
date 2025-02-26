@@ -39,6 +39,13 @@ def get_gait(env, gait):
 joint_traj = torch.tensor(np.loadtxt('/home/wcompton/repos/IsaacLab/source/extensions/omni.isaac.lab_tasks/omni/isaac/lab_tasks/manager_based/locomotion/velocity/config/go2/joint_traj/joint_trajectory.txt'))
 joint_times = torch.arange(joint_traj.shape[0]) / (joint_traj.shape[0] - 1)
 
+v_xs = torch.tensor(np.load('/home/wcompton/repos/IsaacLab/tools/generate_references/go2/references/go2_vxs.npy'))
+v_ys = torch.tensor(np.load('/home/wcompton/repos/IsaacLab/tools/generate_references/go2/references/go2_vys.npy'))
+w_zs = torch.tensor(np.load('/home/wcompton/repos/IsaacLab/tools/generate_references/go2/references/go2_wzs.npy'))
+ts = torch.tensor(np.load('/home/wcompton/repos/IsaacLab/tools/generate_references/go2/references/go2_reference_ts.npy'))
+q_refs = torch.tensor(np.load('/home/wcompton/repos/IsaacLab/tools/generate_references/go2/references/go2_reference_qs_isaac.npy'))
+foot_refs = torch.tensor(np.load('/home/wcompton/repos/IsaacLab/tools/generate_references/go2/references/go2_reference_foot_refs.npy'))
+
 @configclass
 class QuadrupedRewardsCfg(RewardsCfg):
 
@@ -63,53 +70,87 @@ class QuadrupedRewardsCfg(RewardsCfg):
         }
     )
 
-    # Track swing foot height
-    swing_foot_height = RewTerm(
-        func=mdp.swing_foot_height,
-        weight=0.5,
+    foot_pos = RewTerm(
+        func=mdp.interp_foot_pos,
+        weight=0.25,
         params={
             "command_name": "base_velocity",
             "asset_cfg": SceneEntityCfg("robot", body_names=".*foot"),
-            "swing_height": 0.08,
-            "period": 0.3,
-            "stand_threshold": 0.05,
+            "v_xs": v_xs,
+            "v_ys": v_ys,
+            "w_zs": w_zs,
+            "ts": ts,
+            "foot_refs": foot_refs,
             "std": math.sqrt(0.001),  # Maximum error is about stand_threshold
             "get_gait_offset": get_gait,
             "get_gait_args": {"gait": 0}
         }
     )
 
-    # Track Swing foot xy
-    foot_pos_xy = RewTerm(
-        func=mdp.foot_pos_xy,
-        weight=0.0,
-        params={
-            "asset_cfg": SceneEntityCfg("robot", body_names=".*foot"),
-            "foot_xy_des": torch.tensor([
-                [0.177822, 0.110444],
-                [0.177822, -0.110444],
-                [-0.270516, 0.111372],
-                [-0.270516, -0.111372]
-            ]),
-            "std": math.sqrt(0.0025),  # wider peak than standing
-        }
-    )
-    # Track joint trajectory
-    joint_trajectories = RewTerm(
-        func=mdp.joint_trajectories,
-        weight=0.5,
+    joint_traj = RewTerm(
+        func=mdp.interp_joint_trajectory,
+        weight=1.0,
         params={
             "command_name": "base_velocity",
             "asset_cfg": SceneEntityCfg("robot"),
-            "period": 0.3,
-            "joint_times": joint_times,
-            "joint_trajectory": joint_traj,
-            "stand_threshold": 0.05,
+            "v_xs": v_xs,
+            "v_ys": v_ys,
+            "w_zs": w_zs,
+            "ts": ts,
+            "q_refs": q_refs,
             "std": math.sqrt(0.1),  # Maximum error is about stand_threshold
             "get_gait_offset": get_gait,
             "get_gait_args": {"gait": 0}
         }
     )
+    # # Track swing foot height
+    # swing_foot_height = RewTerm(
+    #     func=mdp.swing_foot_height,
+    #     weight=0.5,
+    #     params={
+    #         "command_name": "base_velocity",
+    #         "asset_cfg": SceneEntityCfg("robot", body_names=".*foot"),
+    #         "swing_height": 0.08,
+    #         "period": 0.3,
+    #         "stand_threshold": 0.05,
+    #         "std": math.sqrt(0.001),  # Maximum error is about stand_threshold
+    #         "get_gait_offset": get_gait,
+    #         "get_gait_args": {"gait": 0}
+    #     }
+    # )
+    #
+    # # Track Swing foot xy
+    # foot_pos_xy = RewTerm(
+    #     func=mdp.foot_pos_xy,
+    #     weight=0.0,
+    #     params={
+    #         "asset_cfg": SceneEntityCfg("robot", body_names=".*foot"),
+    #         "foot_xy_des": torch.tensor([
+    #             [0.177822, 0.110444],
+    #             [0.177822, -0.110444],
+    #             [-0.270516, 0.111372],
+    #             [-0.270516, -0.111372]
+    #         ]),
+    #         "std": math.sqrt(0.0025),  # wider peak than standing
+    #     }
+    # )
+
+    # Track joint trajectory
+    # joint_trajectories = RewTerm(
+    #     func=mdp.joint_trajectories,
+    #     weight=0.5,
+    #     params={
+    #         "command_name": "base_velocity",
+    #         "asset_cfg": SceneEntityCfg("robot"),
+    #         "period": 0.3,
+    #         "joint_times": joint_times,
+    #         "joint_trajectory": joint_traj,
+    #         "stand_threshold": 0.05,
+    #         "std": math.sqrt(0.1),  # Maximum error is about stand_threshold
+    #         "get_gait_offset": get_gait,
+    #         "get_gait_args": {"gait": 0}
+    #     }
+    # )
 
 @configclass
 class UnitreeGo2RoughEnvCfg(LocomotionVelocityRoughEnvCfg):
@@ -159,8 +200,16 @@ class UnitreeGo2RoughEnvCfg(LocomotionVelocityRoughEnvCfg):
         self.rewards.track_lin_vel_xy_exp.weight = 1.5
         self.rewards.track_ang_vel_z_exp.weight = 0.75
         self.rewards.dof_acc_l2.weight = -2.5e-7
-        self.rewards.joint_trajectories.params["joint_trajectory"] = self.rewards.joint_trajectories.params["joint_trajectory"].to(self.sim.device)
-        self.rewards.joint_trajectories.params["joint_times"] = self.rewards.joint_trajectories.params["joint_times"].to(self.sim.device)
+        self.rewards.foot_pos.params["v_xs"] = self.rewards.foot_pos.params["v_xs"].to(self.sim.device)
+        self.rewards.foot_pos.params["v_ys"] = self.rewards.foot_pos.params["v_ys"].to(self.sim.device)
+        self.rewards.foot_pos.params["w_zs"] = self.rewards.foot_pos.params["w_zs"].to(self.sim.device)
+        self.rewards.foot_pos.params["ts"] = self.rewards.foot_pos.params["ts"].to(self.sim.device)
+        self.rewards.foot_pos.params["foot_refs"] = self.rewards.foot_pos.params["foot_refs"].to(self.sim.device)
+        self.rewards.joint_traj.params["v_xs"] = self.rewards.joint_traj.params["v_xs"].to(self.sim.device)
+        self.rewards.joint_traj.params["v_ys"] = self.rewards.joint_traj.params["v_ys"].to(self.sim.device)
+        self.rewards.joint_traj.params["w_zs"] = self.rewards.joint_traj.params["w_zs"].to(self.sim.device)
+        self.rewards.joint_traj.params["ts"] = self.rewards.joint_traj.params["ts"].to(self.sim.device)
+        self.rewards.joint_traj.params["q_refs"] = self.rewards.joint_traj.params["q_refs"].to(self.sim.device)
 
 
         # terminations

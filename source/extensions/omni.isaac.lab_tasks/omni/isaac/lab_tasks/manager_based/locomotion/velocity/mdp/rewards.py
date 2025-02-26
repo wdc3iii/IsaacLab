@@ -184,7 +184,7 @@ def swing_foot_height(
 
     return torch.mean(rew, dim=-1)
 
-def joint_trajectories(env, command_name: str, asset_cfg: SceneEntityCfg, period: float,
+def single_joint_trajectory(env, command_name: str, asset_cfg: SceneEntityCfg, period: float,
                        joint_times: torch.Tensor, joint_trajectory: torch.Tensor, stand_threshold: float,
                        std: float, get_gait_offset: Callable, get_gait_args: dict) -> torch.Tensor:
     asset = env.scene[asset_cfg.name]
@@ -211,9 +211,52 @@ def joint_trajectories(env, command_name: str, asset_cfg: SceneEntityCfg, period
     error = q_pos - q_des
     return torch.mean(torch.exp(-torch.square(error)/ std**2), dim=-1)
 
+def interp_joint_trajectory(
+        env, command_name: str, asset_cfg: SceneEntityCfg, ts: torch.Tensor,
+        q_refs: torch.Tensor, v_xs: torch.Tensor, v_ys: torch.Tensor, w_zs: torch.Tensor,
+        std: float, get_gait_offset: Callable, get_gait_args: dict) -> torch.Tensor:
+    asset = env.scene[asset_cfg.name]
+    vel_cmd = env.command_manager.get_command(command_name)
+    gait_phase_offset = get_gait_offset(env, **get_gait_args)
+    period = torch.max(ts)
+
+    q_pos = asset.data.joint_pos.detach().clone()
+    q_des = torch.zeros_like(q_pos)
+
+    # Get interpolation stuff
+    vx_low = torch.where(v_xs <= vel_cmd[:, 0])[0][-1]  # Last index less than v_x
+    vx_high = torch.argmax(v_xs >= vel_cmd[:, 0])  # First index greater than v_x
+    vy_low = torch.where(v_ys <= vel_cmd[:, 1])[0][-1]  # Last index less than v_x
+    vy_high = torch.argmax(v_ys >= vel_cmd[:, 1])  # First index greater than v_x
+    wz_low = torch.where(w_zs <= vel_cmd[:, 2])[0][-1]  # Last index less than v_x
+    wz_high = torch.argmax(w_zs >= vel_cmd[:, 2])  # First index greater than v_x
+    vx_inds = torch.array([vx_low] * 8 + [vx_high] * 8)
+    vy_inds = torch.tile(torch.array([vy_low] * 4 + [vy_high] * 4), 2)
+    wz_inds = torch.tile(torch.array([wz_low] * 2 + [wz_high] * 2), 4)
+
+    # interpolate joint positions
+    for foot_id in range(4):
+        t = (env.sim.current_time + gait_phase_offset[foot_id]) % period
+        ts_low = torch.where(ts <= t)[0][-1]  # Last index less than v_x
+        ts_high = torch.argmax(ts >= t)  # First index greater than v_x
+
+        t_inds = torch.tile(torch.array([ts_low, ts_high]), 8)
+
+        vecs = torch.stack([v_xs[vx_inds], v_ys[vy_inds], w_zs[wz_inds], ts[t_inds]])
+        des_vec = torch.cat((vel_cmd, torch.ones((vel_cmd.shape[0], 1)) * t))
+        dist = torch.linalg.norm(vecs - des_vec, axis=0) + 1e-4
+        weights = 1 / dist
+        weights = weights / torch.sum(weights, keepdim=True)
+
+        q_des[:, 3 * foot_id: 3 * (foot_id + 1)] = torch.sum(
+            weights[:, None] * q_refs[vx_inds, vy_inds, wz_inds, t_inds, 3 * foot_id:3 * (foot_id + 1)]
+        , dim=0)
+    error = q_pos - q_des
+    return torch.mean(torch.exp(-torch.square(error) / std ** 2), dim=-1)
+
 
     # Incentivize foot to be under the hip.
-def foot_pos_xy(
+def single_foot_pos_xy(
     env: ManagerBasedRLEnv, asset_cfg: SceneEntityCfg, foot_xy_des: torch.tensor, std: float
 ):
     # Get foot height
@@ -225,6 +268,84 @@ def foot_pos_xy(
         -foot_xy_w[:, :, 0] * torch.sin(heading) + foot_xy_w[:, :, 1] * torch.cos(heading)
     ], dim=-1)
     foot_error = foot_xy_b - foot_xy_des.to(env.device)
+    foot_error = torch.sum(foot_error * foot_error, dim=-1)
+
+    return torch.mean(torch.exp(-foot_error / std**2), dim=-1)
+
+def interp_foot_pos(
+        env, command_name: str, asset_cfg: SceneEntityCfg,
+        ts: torch.Tensor, foot_refs: torch.Tensor, v_xs: torch.Tensor, v_ys: torch.Tensor,
+        w_zs: torch.Tensor, std: float, get_gait_offset: Callable, get_gait_args: dict) -> torch.Tensor:
+    # Get foot height
+    asset = env.scene[asset_cfg.name]
+    foot_xy_w = asset.data.body_pos_w[:, asset_cfg.body_ids, :]
+    foot_xy_w[:, :, :2] -= asset.data.root_pos_w[:, :2][:, None, :]
+    vel_cmd = env.command_manager.get_command(command_name)
+    gait_phase_offset = get_gait_offset(env, **get_gait_args)
+    period = torch.max(ts)
+
+    # Get interpolation stuff
+    # Assume v_x is linearly spaced
+    dv_x = v_xs[1] - v_xs[0]
+    vx_low = torch.floor((vel_cmd[:, 0] - v_xs[0]) / dv_x)
+    vx_high = torch.clip(vx_low + 1, 0, v_xs.shape[0] - 1)
+    vx_low = torch.clip(vx_low, 0, v_xs.shape[0] - 1)
+
+    dv_y = v_ys[1] - v_ys[0]
+    vy_low = torch.floor((vel_cmd[:, 0] - v_ys[0]) / dv_y)
+    vy_high = torch.clip(vy_low + 1, 0, v_ys.shape[0] - 1)
+    vy_low = torch.clip(vy_low, 0, v_ys.shape[0] - 1)
+
+    dw_z = w_zs[1] - w_zs[0]
+    wz_low = torch.floor((vel_cmd[:, 0] - w_zs[0]) / dw_z)
+    wz_high = torch.clip(wz_low + 1, 0, w_zs.shape[0] - 1)
+    wz_low = torch.clip(wz_low, 0, w_zs.shape[0] - 1)
+
+    vx_inds = torch.cat((
+        vx_low.repeat(1, 1, 8),
+        vx_high.repeat(1, 1, 8)
+    ), dim=-1)
+    vy_inds = torch.cat((
+        vy_low.repeat(1, 1, 4),
+        vy_high.repeat(1, 1, 4)
+    ), dim=-1).repeat(1, 1, 2)
+    wz_inds = torch.cat((
+        wz_low.repeat(1, 1, 2),
+        wz_high.repeat(1, 1, 2)
+    ), dim=-1).repeat(1, 1, 4)
+
+    foot_des = torch.zeros_like(foot_xy_w)
+
+    dt = ts[1] - ts[0]
+
+    # interpolate joint positions
+    for foot_id in range(4):
+        t = (env.sim.current_time + gait_phase_offset[foot_id]) % period
+        ts_low = torch.floor((t - ts[0]) / dt)
+        ts_high = torch.clip(ts_low + 1, 0, ts.shape[0] - 1)
+        ts_low = torch.clip(ts_low, 0, ts.shape[0] - 1)
+
+        t_inds = torch.cat((
+            ts_low[:, None],
+            ts_high[:, None]
+        ), dim=-1).repeat(1, 1, 8)
+
+        vecs = torch.stack([v_xs[vx_inds], v_ys[vy_inds], w_zs[wz_inds], ts[t_inds]])
+        des_vec = torch.cat((vel_cmd, torch.ones((vel_cmd.shape[0], 1)) * t))
+        dist = torch.linalg.norm(vecs - des_vec, axis=0) + 1e-4
+        weights = 1 / dist
+        weights = weights / torch.sum(weights, keepdim=True)
+
+        foot_des[:, foot_id, :] = torch.sum(
+            weights[:, None] * foot_refs[vx_inds, vy_inds, wz_inds, t_inds, foot_id, :]
+            , dim=0)
+    heading = asset.data.heading_w[:, None]
+    foot_b = torch.stack([
+        foot_xy_w[:, :, 0] * torch.cos(heading) + foot_xy_w[:, :, 1] * torch.sin(heading),
+        -foot_xy_w[:, :, 0] * torch.sin(heading) + foot_xy_w[:, :, 1] * torch.cos(heading),
+        foot_xy_w[:, :, 2]
+    ], dim=-1)
+    foot_error = foot_b - foot_des
     foot_error = torch.sum(foot_error * foot_error, dim=-1)
 
     return torch.mean(torch.exp(-foot_error / std**2), dim=-1)

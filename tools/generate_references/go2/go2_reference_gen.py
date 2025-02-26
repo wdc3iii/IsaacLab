@@ -154,4 +154,4 @@ if __name__ == "__main__":
 
     mujoco_to_isaac = [joint_names_mujoco.index(joint_name) for joint_name in joint_names_isaac]
     isaac_to_mujoco = [joint_names_isaac.index(joint_name) for joint_name in joint_names_mujoco]
-    np.save("references/go2_reference_qs_isaac.txt", q_refs[..., mujoco_to_isaac])
+    np.save("references/go2_reference_qs_isaac.npy", q_refs[..., mujoco_to_isaac])

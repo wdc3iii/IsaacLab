@@ -109,7 +109,7 @@
         diaginertia="0.02448 0.098077 0.107"/>
         <!-- diaginertia changed to match urdf throghout xml -->
 
-      <!-- <freejoint name="root"/> -->
+       <freejoint name="root"/>
 
       <!-- <geom mesh="base_0" material="black" class="visual"/>
       <geom mesh="base_1" material="black" class="visual"/>
@@ -372,7 +372,7 @@
   </actuator>
 
   <keyframe>
-    <key name="standing_isaac" qpos="-0.1 0.8 -1.5 0.1 0.8 -1.5 -0.1 1.0 -1.5 0.1 1.0 -1.5"
+    <key name="standing_isaac" qpos="0 0 0.28 1 0 0 0 -0.1 0.8 -1.5 0.1 0.8 -1.5 -0.1 1.0 -1.5 0.1 1.0 -1.5"
       ctrl="-0.1 0.8 -1.5 0.1 0.8 -1.5 -0.1 0.8 -1.5 0.1 0.8 -1.5
             0 0 0 0 0 0 0 0 0 0 0 0
             0 0 0 0 0 0 0 0 0 0 0 0"/>

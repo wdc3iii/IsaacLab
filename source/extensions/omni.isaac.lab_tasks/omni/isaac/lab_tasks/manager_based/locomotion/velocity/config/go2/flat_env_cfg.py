@@ -19,7 +19,7 @@ class UnitreeGo2FlatEnvCfg(UnitreeGo2RoughEnvCfg):
         # override rewards
         self.rewards.flat_orientation_l2.weight = -2.5
         self.rewards.base_height_l2.weight = -1.
-        self.rewards.joint_trajectories.weight = 1.
+        self.rewards.joint_traj.weight = 1.
         self.rewards.track_lin_vel_xy_exp.weight = 2.5
 
         # Override velocity limits
