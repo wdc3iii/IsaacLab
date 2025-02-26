@@ -47,14 +47,14 @@ def generate_reference(v_x, v_y, w_z, foot_ids, default_foot_pos, data, model, s
     p_com = np.stack((x_t, y_t, theta), axis=1)
 
     p_foot_0 = np.hstack((p_com[0, :2], np.array(0))) + (np.array([
-            [ np.cos(p_com[0, 2]), np.sin(p_com[0, 2]), 0],
-            [-np.sin(p_com[0, 2]), np.cos(p_com[0, 2]), 0],
+            [np.cos(p_com[0, 2]), -np.sin(p_com[0, 2]), 0],
+            [np.sin(p_com[0, 2]), np.cos(p_com[0, 2]), 0],
             [0, 0, 1]
         ]) @ default_foot_pos.T).T
 
     p_foot_1 = np.hstack((p_com[-1, :2], np.array(0))) + (np.array([
-            [ np.cos(p_com[-1, 2]), np.sin(p_com[-1, 2]), 0],
-            [-np.sin(p_com[-1, 2]), np.cos(p_com[-1, 2]), 0],
+            [np.cos(p_com[-1, 2]), -np.sin(p_com[-1, 2]), 0],
+            [np.sin(p_com[-1, 2]), np.cos(p_com[-1, 2]), 0],
             [0, 0, 1]
         ]) @ default_foot_pos.T).T
 
@@ -72,8 +72,8 @@ def generate_reference(v_x, v_y, w_z, foot_ids, default_foot_pos, data, model, s
         foot_pos = cubic_bezier_interpolation(p_foot_0, p_foot_1, phase)
         # Convert to body frame
         foot_pos = (np.array([
-            [np.cos(p_com[i, 2]), -np.sin(p_com[i, 2]), 0],
-            [np.sin(p_com[i, 2]),  np.cos(p_com[i, 2]), 0],
+            [np.cos(p_com[i, 2]), np.sin(p_com[i, 2]), 0],
+            [-np.sin(p_com[i, 2]),  np.cos(p_com[i, 2]), 0],
             [0, 0, 1]
         ]) @ (foot_pos - np.hstack((p_com[i, :2], np.array(0)))).T).T
         foot_pos[:, -1] += z

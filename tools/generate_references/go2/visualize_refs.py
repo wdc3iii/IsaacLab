@@ -4,9 +4,9 @@ import numpy as np
 import time
 
 
-v_x = 1.4
-v_y = 0.
-w_z = 0.
+v_x = 1.2
+v_y = .5
+w_z = 0.25
 
 
 def yaw2quat(yaw):
@@ -56,7 +56,7 @@ if __name__ == "__main__":
     phase_offset = np.array([0, T / 2, T / 2, 0])
     t = 0
     dt = 1 / 60
-    sim_rate = 1
+    sim_rate = 0.2
     with mujoco.viewer.launch_passive(model, data) as viewer:
         while viewer.is_running():
             # TODO: interpolate q out of data
